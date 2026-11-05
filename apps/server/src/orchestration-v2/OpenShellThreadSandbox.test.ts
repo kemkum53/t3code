@@ -1,7 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
 import type { ThreadId } from "@t3tools/contracts";
 
-import { resolveSandboxForPath, resolveThreadSandbox } from "./OpenShellThreadSandbox.ts";
+import {
+  resolveSandboxForDeletedThread,
+  resolveSandboxForPath,
+  resolveThreadSandbox,
+} from "./OpenShellThreadSandbox.ts";
 
 type Input = Parameters<typeof resolveThreadSandbox>;
 
@@ -60,5 +64,18 @@ describe("resolveSandboxForPath", () => {
 
   it("needs a configured profile", () => {
     assert.isUndefined(resolveSandboxForPath("/sandbox/t3-abc123/a.txt", instances([])));
+  });
+});
+
+describe("resolveSandboxForDeletedThread", () => {
+  it("finds the box without a session", () => {
+    assert.strictEqual(
+      resolveSandboxForDeletedThread(threadId, configured)?.sandbox,
+      "t3-5d465468932f",
+    );
+  });
+
+  it("does nothing when no profile is configured", () => {
+    assert.isUndefined(resolveSandboxForDeletedThread(threadId, instances([])));
   });
 });

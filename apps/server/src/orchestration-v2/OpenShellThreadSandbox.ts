@@ -24,6 +24,11 @@ const instanceProfile = (
   return resolveOpenShellProfile(Object.fromEntries(entries));
 };
 
+const firstProfile = (instances: ProviderInstances) =>
+  Object.values(instances)
+    .map(instanceProfile)
+    .find((candidate) => candidate !== undefined);
+
 /** The latest provider session names the instance that holds the sandbox profile. */
 export const resolveThreadSandbox = (
   threadId: ThreadId,
@@ -45,10 +50,17 @@ export const resolveSandboxForPath = (
 ): OpenShellTarget | undefined => {
   const sandbox = sandboxForWorkdir(path);
   if (sandbox === undefined) return undefined;
-  const profile = Object.values(instances)
-    .map(instanceProfile)
-    .find((candidate) => candidate !== undefined);
+  const profile = firstProfile(instances);
   return profile === undefined
     ? undefined
     : { ...profile, sandbox, workdir: `/sandbox/${sandbox}` };
+};
+
+/** A deleted thread has no session left to read, so any configured profile reaches its box. */
+export const resolveSandboxForDeletedThread = (
+  threadId: ThreadId,
+  instances: ProviderInstances,
+): OpenShellTarget | undefined => {
+  const profile = firstProfile(instances);
+  return profile === undefined ? undefined : targetForThread(profile, threadId);
 };

@@ -2,6 +2,9 @@ import * as Schema from "effect/Schema";
 
 import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
+/** Reported as a provider auth type, so clients can tell isolated instances apart. */
+export const OPENSHELL_SANDBOX_AUTH_TYPE = "openShellSandbox";
+
 export const OpenShellThreadInput = Schema.Struct({ threadId: ThreadId });
 export type OpenShellThreadInput = typeof OpenShellThreadInput.Type;
 

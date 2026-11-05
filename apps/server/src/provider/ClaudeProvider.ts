@@ -56,6 +56,7 @@ import {
   resolveClaudeUpdateRequiredModels,
 } from "./ClaudeModelCatalog.ts";
 import { resolveOpenShellProfile } from "../orchestration-v2/Adapters/ClaudeOpenShellSpawn.ts";
+import { OPENSHELL_SANDBOX_AUTH_TYPE } from "@t3tools/contracts";
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
@@ -688,7 +689,9 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   // A proxy's ANTHROPIC_AUTH_TOKEN reads as an API key; the endpoint is what the token is for.
   const authMetadata =
     apiProviderAuthMetadata(capabilities.apiProvider) ??
-    (openShellSandbox ? { type: "customEndpoint", label: "OpenShell sandbox" } : undefined) ??
+    (openShellSandbox
+      ? { type: OPENSHELL_SANDBOX_AUTH_TYPE, label: "OpenShell sandbox" }
+      : undefined) ??
     (customApiEndpoint ? { type: "customEndpoint", label: "Custom API endpoint" } : undefined) ??
     claudeAuthMetadata({
       subscriptionType: capabilities.subscriptionType,

@@ -152,6 +152,9 @@ const isStaged = async (target: OpenShellTarget, platform: NodeJS.Platform) => {
   return result.toString().trim().endsWith("yes");
 };
 
+export const deleteSandbox = (target: OpenShellTarget, platform: NodeJS.Platform) =>
+  runInLinux(target, `openshell sandbox delete ${quote(target.sandbox)} </dev/null`, platform);
+
 /** Reads through the sandbox because the path does not exist on the host. */
 export const readSandboxFile = async (
   target: OpenShellTarget,

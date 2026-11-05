@@ -1,3 +1,4 @@
+import { OPENSHELL_SANDBOX_AUTH_TYPE } from "@t3tools/contracts";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
@@ -128,6 +129,7 @@ export type SidebarProviderEntry = Pick<
   | "acpRegistryAgentId"
   | "acpRegistryIconUrl"
   | "models"
+  | "snapshot"
 >;
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -199,6 +201,7 @@ function SidebarProviderStack(props: {
       acpRegistryAgentId={currentEntry.acpRegistryAgentId}
       acpRegistryIconUrl={currentEntry.acpRegistryIconUrl}
       showBadge={showInstanceBadge}
+      sandboxed={currentEntry.snapshot.auth.type === OPENSHELL_SANDBOX_AUTH_TYPE}
       size="compact"
       iconClassName="opacity-60"
     />
