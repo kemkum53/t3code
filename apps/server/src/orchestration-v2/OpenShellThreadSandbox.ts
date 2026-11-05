@@ -1,41 +1,54 @@
-import type { OrchestrationV2ThreadProjection, ServerSettings } from "@t3tools/contracts";
+import type { OrchestrationV2ThreadProjection, ServerSettings, ThreadId } from "@t3tools/contracts";
 
-import { resolveOpenShellTarget, type OpenShellTarget } from "./Adapters/ClaudeOpenShellSpawn.ts";
+import {
+  resolveOpenShellProfile,
+  sandboxForWorkdir,
+  targetForThread,
+  type OpenShellProfile,
+  type OpenShellTarget,
+} from "./Adapters/ClaudeOpenShellSpawn.ts";
+
+type ProviderInstances = ServerSettings["providerInstances"];
 
 export interface ThreadSandbox {
   readonly target: OpenShellTarget;
   readonly hostCwd: string;
 }
 
-const instanceTarget = (
-  instance:
-    | ServerSettings["providerInstances"][keyof ServerSettings["providerInstances"]]
-    | undefined,
-): OpenShellTarget | undefined => {
+const instanceProfile = (
+  instance: ProviderInstances[keyof ProviderInstances] | undefined,
+): OpenShellProfile | undefined => {
   const entries = (instance?.environment ?? []).flatMap((variable) =>
     typeof variable.value === "string" ? [[variable.name, variable.value] as const] : [],
   );
-  return resolveOpenShellTarget(Object.fromEntries(entries));
+  return resolveOpenShellProfile(Object.fromEntries(entries));
 };
 
-/** The latest provider session names the instance whose environment selects the sandbox. */
+/** The latest provider session names the instance that holds the sandbox profile. */
 export const resolveThreadSandbox = (
+  threadId: ThreadId,
   projection: Pick<OrchestrationV2ThreadProjection, "providerSessions">,
-  instances: ServerSettings["providerInstances"],
+  instances: ProviderInstances,
 ): ThreadSandbox | undefined => {
   const session = projection.providerSessions.at(-1);
   if (session === undefined) return undefined;
-  const target = instanceTarget(instances[session.providerInstanceId]);
-  return target === undefined ? undefined : { target, hostCwd: session.cwd };
+  const profile = instanceProfile(instances[session.providerInstanceId]);
+  return profile === undefined
+    ? undefined
+    : { target: targetForThread(profile, threadId), hostCwd: session.cwd };
 };
 
-/** Agents report box paths, which name a file only inside the sandbox that owns the workdir. */
+/** A box path carries its sandbox's name, so it needs no thread to find the right box. */
 export const resolveSandboxForPath = (
   path: string,
-  instances: ServerSettings["providerInstances"],
+  instances: ProviderInstances,
 ): OpenShellTarget | undefined => {
-  if (path.split("/").includes("..")) return undefined;
-  return Object.values(instances)
-    .map(instanceTarget)
-    .find((target) => target !== undefined && path.startsWith(`${target.workdir}/`));
+  const sandbox = sandboxForWorkdir(path);
+  if (sandbox === undefined) return undefined;
+  const profile = Object.values(instances)
+    .map(instanceProfile)
+    .find((candidate) => candidate !== undefined);
+  return profile === undefined
+    ? undefined
+    : { ...profile, sandbox, workdir: `/sandbox/${sandbox}` };
 };

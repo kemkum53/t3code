@@ -1,6 +1,7 @@
 import {
   OpenShellSandboxChangesError,
   OrchestrationDispatchCommandError,
+  type ProjectListEntriesInput,
   type ProjectReadFileInput,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -282,6 +283,7 @@ import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import { requestUrl } from "./requestUrl.ts";
 import {
   applySandboxChanges,
+  listSandboxEntries,
   readSandboxChanges,
   readSandboxFile,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellWorkspace.ts";
@@ -1491,34 +1493,63 @@ export const layerWsRpc = (
           serverSettings.getSettings,
         ]).pipe(
           Effect.map(([projection, settings]) =>
-            resolveThreadSandbox(projection, settings.providerInstances),
+            resolveThreadSandbox(threadId, projection, settings.providerInstances),
+          ),
+        );
+      const sandboxForPath = (path: string) =>
+        serverSettings.getSettings.pipe(
+          Effect.option,
+          Effect.map(
+            Option.flatMapNullishOr(({ providerInstances }) =>
+              resolveSandboxForPath(path, providerInstances),
+            ),
           ),
         );
       const readProjectFile = Effect.fn("ws.readProjectFile")(function* (
         input: ProjectReadFileInput,
       ) {
-        const settings = yield* serverSettings.getSettings.pipe(Effect.option);
-        const target = Option.map(settings, ({ providerInstances }) =>
-          resolveSandboxForPath(input.relativePath, providerInstances),
-        ).pipe(Option.getOrUndefined);
-        if (target === undefined) return yield* workspaceFileSystem.readFile(input);
+        const path = input.relativePath.startsWith("/")
+          ? input.relativePath
+          : `${input.cwd}/${input.relativePath}`;
+        const target = yield* sandboxForPath(path);
+        if (Option.isNone(target)) return yield* workspaceFileSystem.readFile(input);
         const platform = yield* HostProcess.Platform;
         const file = yield* Effect.tryPromise({
-          try: () => readSandboxFile(target, input.relativePath, platform),
+          try: () => readSandboxFile(target.value, path, platform),
           catch: (cause) =>
             new OpenShellSandboxChangesError({
               message: "Failed to read sandbox file",
               cause,
             }),
         }).pipe(Effect.option);
-        return Option.isSome(file) ? file.value : yield* workspaceFileSystem.readFile(input);
+        return Option.isSome(file)
+          ? { ...file.value, relativePath: input.relativePath }
+          : yield* workspaceFileSystem.readFile(input);
+      });
+      const listProjectEntries = Effect.fn("ws.listProjectEntries")(function* (
+        input: ProjectListEntriesInput,
+      ) {
+        const target = yield* sandboxForPath(input.cwd);
+        if (Option.isNone(target)) return yield* workspaceEntries.list(input);
+        const platform = yield* HostProcess.Platform;
+        const entries = yield* Effect.tryPromise({
+          try: () => listSandboxEntries(target.value, input.directoryPath ?? "", platform),
+          catch: (cause) =>
+            new OpenShellSandboxChangesError({
+              message: "Failed to list sandbox files",
+              cause,
+            }),
+        }).pipe(Effect.option);
+        return Option.isSome(entries)
+          ? { entries: entries.value, truncated: false }
+          : yield* workspaceEntries.list(input);
       });
       const readThreadSandboxChanges = Effect.fn("ws.readThreadSandboxChanges")(function* (
         threadId: ThreadId,
       ) {
         const sandbox = yield* threadSandbox(threadId);
         if (sandbox === undefined) {
-          return { sandboxed: false, sandbox: null, files: [], diff: "" };
+          return { sandboxed: false, sandbox: null, workdir: null, files: [], diff: "" };
         }
         const platform = yield* HostProcess.Platform;
         const { files, patch } = yield* Effect.tryPromise({
@@ -1532,6 +1563,7 @@ export const layerWsRpc = (
         return {
           sandboxed: true,
           sandbox: sandbox.target.sandbox,
+          workdir: sandbox.target.workdir,
           files,
           diff: patch.toString("utf8"),
         };
@@ -3013,7 +3045,7 @@ export const layerWsRpc = (
             ),
           ),
         [WS_METHODS.projectsListEntries]: (input) =>
-          workspaceEntries.list(input).pipe(
+          listProjectEntries(input).pipe(
             Effect.mapError(
               (cause) =>
                 new ProjectListEntriesError({

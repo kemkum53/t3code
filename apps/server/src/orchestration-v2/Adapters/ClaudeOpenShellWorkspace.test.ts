@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 
-import { parseNumstat, quoteForShell } from "./ClaudeOpenShellWorkspace.ts";
+import { parseNumstat, parseSandboxEntries, quoteForShell } from "./ClaudeOpenShellWorkspace.ts";
 
 describe("parseNumstat", () => {
   it("reads text and binary rows", () => {
@@ -18,5 +18,17 @@ describe("parseNumstat", () => {
 describe("quoteForShell", () => {
   it("survives a single quote", () => {
     assert.strictEqual(quoteForShell("it's"), String.raw`'it'\''s'`);
+  });
+});
+
+describe("parseSandboxEntries", () => {
+  it("keeps paths relative to the workdir", () => {
+    assert.deepStrictEqual(parseSandboxEntries("d\tapps\nf\tREADME.md\n", ""), [
+      { path: "apps", kind: "directory" },
+      { path: "README.md", kind: "file" },
+    ]);
+    assert.deepStrictEqual(parseSandboxEntries("f\tmain.py\n", "apps/hub"), [
+      { path: "apps/hub/main.py", kind: "file" },
+    ]);
   });
 });

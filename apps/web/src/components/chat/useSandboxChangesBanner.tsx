@@ -77,6 +77,14 @@ function SandboxChangesReview(props: {
   );
 }
 
+/** The box folder of a sandboxed thread, which is where its files really are. */
+export function useSandboxWorkdir(environmentId: EnvironmentId, threadId: ThreadId): string | null {
+  const query = useEnvironmentQuery(
+    orchestrationEnvironment.sandboxChanges({ environmentId, input: { threadId } }),
+  );
+  return query.data?.workdir ?? null;
+}
+
 /** Sandboxed threads work on a copy, so their edits wait here until the user applies them. */
 export function useSandboxChangesBanner(input: {
   readonly environmentId: EnvironmentId;

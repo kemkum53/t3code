@@ -55,7 +55,7 @@ import {
   resolveClaudeModelsForVersion,
   resolveClaudeUpdateRequiredModels,
 } from "./ClaudeModelCatalog.ts";
-import { resolveOpenShellTarget } from "../orchestration-v2/Adapters/ClaudeOpenShellSpawn.ts";
+import { resolveOpenShellProfile } from "../orchestration-v2/Adapters/ClaudeOpenShellSpawn.ts";
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
@@ -661,7 +661,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     endpoint.hostname !== "" &&
     endpoint.hostname !== "api.anthropic.com";
   // A sandbox's credential lives on its gateway, so the host login says nothing about it.
-  const openShellSandbox = resolveOpenShellTarget(resolvedEnvironment) !== undefined;
+  const openShellSandbox = resolveOpenShellProfile(resolvedEnvironment) !== undefined;
   if (
     !customApiEndpoint &&
     !openShellSandbox &&

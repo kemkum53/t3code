@@ -75,30 +75,64 @@ const execInBox = (target: OpenShellTarget, script: string, platform: NodeJS.Pla
 const parseTrackedFiles = (listing: Buffer): ReadonlyArray<string> =>
   listing.toString("utf8").split("\0").filter(Boolean);
 
-/** Copies tracked files into the box and records a baseline. Safe to repeat on a resumed thread. */
+const SANDBOX_READY_ATTEMPTS = 90;
+
+/** Creates the thread's box on first use. Later turns find it running and move on. */
+const ensureSandbox = (target: OpenShellTarget, platform: NodeJS.Platform) => {
+  const name = quote(target.sandbox);
+  const create = [
+    `openshell sandbox create --name ${name} --no-tty --detach --from "${target.image}"`,
+    target.policy === undefined ? "" : `--policy "${target.policy}"`,
+    target.provider === undefined ? "" : `--provider ${quote(target.provider)}`,
+    "-- sleep infinity </dev/null >/dev/null",
+  ].join(" ");
+  return runInLinux(
+    target,
+    `openshell sandbox get ${name} </dev/null >/dev/null 2>&1 || ${create}
+i=0
+while [ "$i" -lt ${SANDBOX_READY_ATTEMPTS} ]; do
+  openshell sandbox list </dev/null | grep -q "^${target.sandbox} .*Ready" && exit 0
+  i=$((i + 1))
+  sleep 2
+done
+echo "sandbox ${target.sandbox} did not become ready" >&2
+exit 1`,
+    platform,
+  );
+};
+
+/** A folder outside git has nothing tracked, so its box starts empty. */
+const listTrackedFiles = (hostCwd: string): Promise<ReadonlyArray<string>> =>
+  run("git", ["-C", hostCwd, "ls-files", "-z", "--cached"]).then(parseTrackedFiles, () => []);
+
+/** Creates the box, copies tracked files in and records a baseline. Safe to repeat on resume. */
 export const stageProject = async (
   target: OpenShellTarget,
   hostCwd: string,
   platform: NodeJS.Platform,
 ): Promise<void> => {
-  const ready = await execBoxIfPresent(target, platform);
-  if (ready) return;
-  const listing = await run("git", ["-C", hostCwd, "ls-files", "-z", "--cached"]);
-  const archive = await run(
-    "tar",
-    ["-cf", "-", "--null", "-T", "-"],
-    Buffer.from(parseTrackedFiles(listing).join("\0") + "\0"),
-    hostCwd,
-  );
-  // Upload keeps the source directory's name, so staging mirrors the workdir's.
-  const root = stagingRoot(target.sandbox);
-  const staging = `${root}/${NodePath.posix.basename(target.workdir)}`;
-  await runInLinux(
-    target,
-    `set -e; rm -rf "${root}"; mkdir -p "${staging}"; tar -xf - -C "${staging}"; exec openshell sandbox upload --no-git-ignore ${quote(target.sandbox)} "${staging}" ${quote(NodePath.posix.dirname(target.workdir))} </dev/null`,
-    platform,
-    archive,
-  );
+  await ensureSandbox(target, platform);
+  if (await isStaged(target, platform)) return;
+  const files = await listTrackedFiles(hostCwd);
+  if (files.length > 0) {
+    const archive = await run(
+      "tar",
+      ["-cf", "-", "--null", "-T", "-"],
+      Buffer.from(files.join("\0") + "\0"),
+      hostCwd,
+    );
+    // Upload keeps the source directory's name, so staging mirrors the workdir's.
+    const root = stagingRoot(target.sandbox);
+    const staging = `${root}/${NodePath.posix.basename(target.workdir)}`;
+    await runInLinux(
+      target,
+      `set -e; rm -rf "${root}"; mkdir -p "${staging}"; tar -xf - -C "${staging}"; openshell sandbox upload --no-git-ignore ${quote(target.sandbox)} "${staging}" ${quote(NodePath.posix.dirname(target.workdir))} </dev/null; rm -rf "${root}"`,
+      platform,
+      archive,
+    );
+  } else {
+    await execInSandboxRoot(target, `mkdir -p ${quote(target.workdir)}`, platform);
+  }
   await execInBox(
     target,
     `set -e; git init -q; git config core.autocrlf false; git config user.name T3; git config user.email t3@localhost; git add -A; git commit -q --allow-empty -m ${quote(BASELINE_MESSAGE)}`,
@@ -106,10 +140,13 @@ export const stageProject = async (
   );
 };
 
-const execBoxIfPresent = async (target: OpenShellTarget, platform: NodeJS.Platform) => {
-  const result = await runInLinux(
+const execInSandboxRoot = (target: OpenShellTarget, script: string, platform: NodeJS.Platform) =>
+  execInBox({ ...target, workdir: NodePath.posix.dirname(target.workdir) }, script, platform);
+
+const isStaged = async (target: OpenShellTarget, platform: NodeJS.Platform) => {
+  const result = await execInSandboxRoot(
     target,
-    `exec openshell sandbox exec --name ${quote(target.sandbox)} --no-tty -- sh -c ${quote(`test -d ${quote(`${target.workdir}/.git`)} && echo yes || echo no`)} </dev/null`,
+    `test -d ${quote(`${target.workdir}/.git`)} && echo yes || echo no`,
     platform,
   );
   return result.toString().trim().endsWith("yes");
@@ -135,6 +172,42 @@ export const readSandboxFile = async (
     truncated,
     exists: true,
   };
+};
+
+export interface SandboxEntry {
+  readonly path: string;
+  readonly kind: "file" | "directory";
+}
+
+/** Lists one folder the way the host listing does: paths are relative to the workdir. */
+export const parseSandboxEntries = (
+  output: string,
+  directoryPath: string,
+): ReadonlyArray<SandboxEntry> =>
+  output
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [type = "", ...name] = line.split("\t");
+      const path = name.join("\t");
+      return {
+        path: directoryPath === "" ? path : `${directoryPath}/${path}`,
+        kind: type === "d" ? ("directory" as const) : ("file" as const),
+      };
+    });
+
+export const listSandboxEntries = async (
+  target: OpenShellTarget,
+  directoryPath: string,
+  platform: NodeJS.Platform,
+): Promise<ReadonlyArray<SandboxEntry>> => {
+  const folder = directoryPath === "" ? "." : directoryPath;
+  const output = await execInBox(
+    target,
+    `find ${quote(folder)} -mindepth 1 -maxdepth 1 -not -name .git -printf '%y\t%P\n' | sort -k2`,
+    platform,
+  );
+  return parseSandboxEntries(output.toString("utf8"), directoryPath);
 };
 
 export interface SandboxChange {

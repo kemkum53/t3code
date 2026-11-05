@@ -6,31 +6,60 @@ import type {
   SpawnedProcess as ClaudeSpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
 
-const SANDBOX_ENV = "T3_OPENSHELL_SANDBOX";
-const WORKDIR_ENV = "T3_OPENSHELL_WORKDIR";
+const IMAGE_ENV = "T3_OPENSHELL_IMAGE";
+const POLICY_ENV = "T3_OPENSHELL_POLICY";
+const PROVIDER_ENV = "T3_OPENSHELL_PROVIDER";
 const WSL_DISTRO_ENV = "T3_OPENSHELL_WSL_DISTRO";
+const SANDBOX_ROOT = "/sandbox";
 const SANDBOX_CLAUDE_BINARY = "/usr/local/bin/claude";
 
 /** Credentials stay on the gateway, so only these non-secret settings cross into a sandbox. */
 const FORWARDED_ENV =
   /^(CLAUDE_AGENT_SDK_|CLAUDE_CODE_(ENTRYPOINT|AUTO_COMPACT_WINDOW|ENABLE_TODO_TOOLS|DISABLE_NONESSENTIAL_TRAFFIC|PROMPT_CACHE_TTL)$|MAX_THINKING_TOKENS$)/;
 
-export interface OpenShellTarget {
-  readonly sandbox: string;
-  readonly workdir: string;
+export interface OpenShellProfile {
+  readonly image: string;
+  readonly policy: string | undefined;
+  readonly provider: string | undefined;
   readonly wslDistro: string | undefined;
 }
 
-export const resolveOpenShellTarget = (
+export interface OpenShellTarget extends OpenShellProfile {
+  readonly sandbox: string;
+  readonly workdir: string;
+}
+
+export const resolveOpenShellProfile = (
   environment: NodeJS.ProcessEnv | undefined,
-): OpenShellTarget | undefined => {
-  const sandbox = environment?.[SANDBOX_ENV]?.trim();
-  if (!sandbox) return undefined;
+): OpenShellProfile | undefined => {
+  const image = environment?.[IMAGE_ENV]?.trim();
+  if (!image) return undefined;
   return {
-    sandbox,
-    workdir: environment?.[WORKDIR_ENV]?.trim() || "/sandbox",
+    image,
+    policy: environment?.[POLICY_ENV]?.trim() || undefined,
+    provider: environment?.[PROVIDER_ENV]?.trim() || undefined,
     wslDistro: environment?.[WSL_DISTRO_ENV]?.trim() || undefined,
   };
+};
+
+/** Every thread owns a box, and the name stays stable so a resumed thread finds it again. */
+export const targetForThread = (profile: OpenShellProfile, threadId: string): OpenShellTarget => {
+  const sandbox = `t3-${threadId.replaceAll("-", "").slice(0, 12).toLowerCase()}`;
+  return { ...profile, sandbox, workdir: `${SANDBOX_ROOT}/${sandbox}` };
+};
+
+export const resolveOpenShellTarget = (
+  environment: NodeJS.ProcessEnv | undefined,
+  threadId: string,
+): OpenShellTarget | undefined => {
+  const profile = resolveOpenShellProfile(environment);
+  return profile === undefined ? undefined : targetForThread(profile, threadId);
+};
+
+/** Returns the sandbox a box path belongs to. Paths that climb upward never match. */
+export const sandboxForWorkdir = (path: string): string | undefined => {
+  if (path.split("/").includes("..")) return undefined;
+  return /^\/sandbox\/(t3-[a-z0-9]+)(?:\/|$)/.exec(path)?.[1];
 };
 
 export const forwardedEnvironment = (environment: NodeJS.ProcessEnv): ReadonlyArray<string> =>

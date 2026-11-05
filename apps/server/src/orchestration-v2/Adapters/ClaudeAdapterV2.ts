@@ -1231,7 +1231,7 @@ export const layerQueryRunner: Layer.Layer<
             if (answered) return;
             stderrTail = (stderrTail + text).slice(-CLAUDE_STDERR_TAIL_LENGTH);
           };
-          const openShellTarget = resolveOpenShellTarget(queryOptions.env);
+          const openShellTarget = resolveOpenShellTarget(queryOptions.env, input.threadId);
           if (openShellTarget !== undefined && queryOptions.cwd !== undefined) {
             const hostCwd = queryOptions.cwd;
             yield* Effect.tryPromise({

@@ -15,6 +15,7 @@ export type OpenShellChangedFile = typeof OpenShellChangedFile.Type;
 export const OpenShellSandboxChanges = Schema.Struct({
   sandboxed: Schema.Boolean,
   sandbox: Schema.NullOr(TrimmedNonEmptyString),
+  workdir: Schema.NullOr(TrimmedNonEmptyString),
   files: Schema.Array(OpenShellChangedFile),
   diff: Schema.String,
 });

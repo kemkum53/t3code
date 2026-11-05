@@ -24,6 +24,7 @@ import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
+import { useSandboxWorkdir } from "./useSandboxChangesBanner";
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -80,6 +81,7 @@ export function RightPanelSurfaceContent(props: {
   readonly sideChatParentPanel: SideChatParentPanel;
 }) {
   const { surface, threadRef, visible, onCloseSurface } = props;
+  const sandboxWorkdir = useSandboxWorkdir(props.environmentId, threadRef.threadId);
   if (surface === null) return null;
   switch (surface.kind) {
     case "preview":
@@ -207,7 +209,7 @@ export function RightPanelSurfaceContent(props: {
               attachment ? `attachment:${attachment.id}` : files.workspaceRoot
             }`}
             environmentId={props.environmentId}
-            cwd={files.workspaceRoot ?? ""}
+            cwd={sandboxWorkdir ?? files.workspaceRoot ?? ""}
             projectName={files.projectName ?? ""}
             threadRef={threadRef}
             composerDraftTarget={props.composerDraftTarget}

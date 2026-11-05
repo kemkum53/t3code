@@ -6,20 +6,29 @@ import {
   resolveOpenShellTarget,
 } from "./ClaudeOpenShellSpawn.ts";
 
-const target = { sandbox: "box", workdir: "/sandbox/app", wslDistro: "Ubuntu-24.04" };
+const target = {
+  sandbox: "box",
+  workdir: "/sandbox/app",
+  wslDistro: "Ubuntu-24.04",
+  image: "img",
+  policy: undefined,
+  provider: undefined,
+};
 
 describe("resolveOpenShellTarget", () => {
-  it("returns undefined without a sandbox name", () => {
-    expect(resolveOpenShellTarget({})).toBeUndefined();
-    expect(resolveOpenShellTarget({ T3_OPENSHELL_SANDBOX: "  " })).toBeUndefined();
+  it("returns undefined without an image", () => {
+    expect(resolveOpenShellTarget({}, "thread")).toBeUndefined();
+    expect(resolveOpenShellTarget({ T3_OPENSHELL_IMAGE: "  " }, "thread")).toBeUndefined();
   });
 
-  it("defaults the working directory", () => {
-    expect(resolveOpenShellTarget({ T3_OPENSHELL_SANDBOX: "box" })).toEqual({
-      sandbox: "box",
-      workdir: "/sandbox",
-      wslDistro: undefined,
-    });
+  it("derives a stable box from the thread", () => {
+    const target = resolveOpenShellTarget(
+      { T3_OPENSHELL_IMAGE: "img", T3_OPENSHELL_PROVIDER: "sub" },
+      "5D465468-932f-4962",
+    );
+    expect(target?.sandbox).toBe("t3-5d465468932f");
+    expect(target?.workdir).toBe("/sandbox/t3-5d465468932f");
+    expect(target?.provider).toBe("sub");
   });
 });
 
@@ -30,8 +39,8 @@ describe("forwardedEnvironment", () => {
         ANTHROPIC_API_KEY: "secret",
         ANTHROPIC_AUTH_TOKEN: "secret",
         CLAUDE_CODE_OAUTH_TOKEN: "secret",
-        CLAUDE_CONFIG_DIR: "C:\Users\me\.claude",
-        PATH: "C:\Windows",
+        CLAUDE_CONFIG_DIR: "C:/Users/me/.claude",
+        PATH: "C:/Windows",
         CLAUDE_CODE_ENTRYPOINT: "sdk-ts",
         MAX_THINKING_TOKENS: "1000",
       }),
