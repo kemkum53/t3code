@@ -22,6 +22,7 @@ export type SettingsPath =
   | "/settings/appearance"
   | "/settings/chat"
   | "/settings/diffs"
+  | "/settings/openshell"
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
@@ -92,6 +93,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/appearance": "Appearance",
   "/settings/chat": "Chat",
   "/settings/diffs": "Diffs & pull requests",
+  "/settings/openshell": "OpenShell",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
@@ -122,6 +124,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
       "/settings/appearance",
       "/settings/chat",
       "/settings/diffs",
+      "/settings/openshell",
       "/settings/keybindings",
       "/settings/snap-shot",
     ],
@@ -1200,6 +1203,7 @@ const SEARCH_ITEMS_BY_ID = new Map(SETTINGS_SEARCH_ITEMS.map((item) => [item.id,
 
 const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScope | null>> = {
   "/settings/diagnostics": "environment",
+  "/settings/openshell": "environment",
   "/settings/projects": "project",
   "/settings/general": null,
   "/settings/appearance": null,

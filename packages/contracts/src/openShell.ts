@@ -27,6 +27,82 @@ export type OpenShellSandboxChanges = typeof OpenShellSandboxChanges.Type;
 export const OpenShellApplyResult = Schema.Struct({ appliedFiles: NonNegativeInt });
 export type OpenShellApplyResult = typeof OpenShellApplyResult.Type;
 
+export const OpenShellGuardRule = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  host: TrimmedNonEmptyString,
+  port: NonNegativeInt,
+  binaries: Schema.Array(TrimmedNonEmptyString),
+  managed: Schema.Boolean,
+});
+export type OpenShellGuardRule = typeof OpenShellGuardRule.Type;
+
+export const OpenShellDenial = Schema.Struct({
+  binary: TrimmedNonEmptyString,
+  host: TrimmedNonEmptyString,
+  port: NonNegativeInt,
+  count: NonNegativeInt,
+});
+export type OpenShellDenial = typeof OpenShellDenial.Type;
+
+export const OpenShellSandboxGuard = Schema.Struct({
+  sandbox: TrimmedNonEmptyString,
+  phase: TrimmedNonEmptyString,
+  rules: Schema.Array(OpenShellGuardRule),
+  denials: Schema.Array(OpenShellDenial),
+});
+export type OpenShellSandboxGuard = typeof OpenShellSandboxGuard.Type;
+
+export const OpenShellSandboxGuardChange = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("allow"),
+    host: TrimmedNonEmptyString,
+    port: NonNegativeInt,
+    binary: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("remove"),
+    host: TrimmedNonEmptyString,
+    port: NonNegativeInt,
+  }),
+  Schema.Struct({ type: Schema.Literal("stop") }),
+  Schema.Struct({ type: Schema.Literal("start") }),
+]);
+export type OpenShellSandboxGuardChange = typeof OpenShellSandboxGuardChange.Type;
+
+export const OpenShellUpdateGuardInput = Schema.Struct({
+  threadId: ThreadId,
+  change: OpenShellSandboxGuardChange,
+});
+export type OpenShellUpdateGuardInput = typeof OpenShellUpdateGuardInput.Type;
+
+export const OpenShellSandboxSummary = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  phase: TrimmedNonEmptyString,
+  createdAt: Schema.String,
+});
+export type OpenShellSandboxSummary = typeof OpenShellSandboxSummary.Type;
+
+export const OpenShellOverview = Schema.Struct({
+  configured: Schema.Boolean,
+  version: Schema.NullOr(TrimmedNonEmptyString),
+  gatewayActive: Schema.Boolean,
+  kvmAvailable: Schema.Boolean,
+  imageAvailable: Schema.Boolean,
+  credentialStored: Schema.Boolean,
+  freeDiskGb: NonNegativeInt,
+  sandboxes: Schema.Array(OpenShellSandboxSummary),
+});
+export type OpenShellOverview = typeof OpenShellOverview.Type;
+
+export const OpenShellSaveCredentialInput = Schema.Struct({ token: TrimmedNonEmptyString });
+export type OpenShellSaveCredentialInput = typeof OpenShellSaveCredentialInput.Type;
+
+export const OpenShellControlSandboxInput = Schema.Struct({
+  sandbox: TrimmedNonEmptyString,
+  action: Schema.Literals(["stop", "start", "delete"]),
+});
+export type OpenShellControlSandboxInput = typeof OpenShellControlSandboxInput.Type;
+
 export class OpenShellSandboxChangesError extends Schema.TaggedError<OpenShellSandboxChangesError>()(
   "OpenShellSandboxChangesError",
   {

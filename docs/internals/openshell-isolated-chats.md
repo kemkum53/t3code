@@ -81,9 +81,13 @@ sit beside normal chats in the same project, and their guard rules are managed f
 - [x] Spike: same flow from a real T3 thread
 - [x] File round trip
 - [x] Approval cards in Supervised mode
-- [ ] Diff review and apply in the UI
+- [x] Diff review and apply in the UI
+- [x] One box per thread, deleted with the thread
 - [ ] Project-less isolated chat
-- [ ] Settings page and setup wizard
-- [ ] New chat flow and sidebar marker
-- [ ] Guard panel and approval cards
-- [ ] Templates and Raspberry Pi support
+- [x] Settings page: machine checks, token, sandbox list
+- [x] Sidebar marker and template instances
+- [x] Guard dialog: network rules, denials, stop and start
+- [ ] Install steps in the settings page
+- [ ] Delete warning for unapplied changes
+- [ ] Stop idle boxes automatically
+- [ ] Raspberry Pi support

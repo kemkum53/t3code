@@ -24,7 +24,7 @@ const instanceProfile = (
   return resolveOpenShellProfile(Object.fromEntries(entries));
 };
 
-const firstProfile = (instances: ProviderInstances) =>
+export const firstProfile = (instances: ProviderInstances) =>
   Object.values(instances)
     .map(instanceProfile)
     .find((candidate) => candidate !== undefined);

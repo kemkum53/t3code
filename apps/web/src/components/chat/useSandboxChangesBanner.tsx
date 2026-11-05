@@ -20,6 +20,7 @@ import {
 } from "../ui/dialog";
 import { toastManager } from "../ui/toast";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
+import { SandboxGuardButton } from "./SandboxGuardDialog";
 
 const fileCount = (count: number) => (count === 1 ? "1 file" : `${count} files`);
 
@@ -102,7 +103,7 @@ export function useSandboxChangesBanner(input: {
   const [applying, setApplying] = useState(false);
 
   const changes = query.data;
-  if (threadId === null || changes === null || changes.files.length === 0) return null;
+  if (threadId === null || changes === null || !changes.sandboxed) return null;
 
   const onApply = async () => {
     setApplying(true);
@@ -130,14 +131,22 @@ export function useSandboxChangesBanner(input: {
     id: "sandbox-changes",
     variant: "info",
     icon: <BoxIcon />,
-    title: `${fileCount(changes.files.length)} changed in the sandbox`,
+    title:
+      changes.files.length === 0
+        ? "Sandbox"
+        : `${fileCount(changes.files.length)} changed in the sandbox`,
     actions: (
-      <SandboxChangesReview
-        changes={changes}
-        applying={applying}
-        canApply={phase !== "running"}
-        onApply={onApply}
-      />
+      <>
+        <SandboxGuardButton environmentId={environmentId} threadId={threadId} />
+        {changes.files.length === 0 ? null : (
+          <SandboxChangesReview
+            changes={changes}
+            applying={applying}
+            canApply={phase !== "running"}
+            onApply={onApply}
+          />
+        )}
+      </>
     ),
   };
 }

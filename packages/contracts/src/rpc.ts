@@ -118,9 +118,14 @@ import {
 } from "./checkpointDiff.ts";
 import {
   OpenShellApplyResult,
+  OpenShellControlSandboxInput,
+  OpenShellOverview,
   OpenShellSandboxChanges,
   OpenShellSandboxChangesError,
+  OpenShellSandboxGuard,
+  OpenShellSaveCredentialInput,
   OpenShellThreadInput,
+  OpenShellUpdateGuardInput,
 } from "./openShell.ts";
 import {
   WorktreeSetupCancelInput,
@@ -1764,6 +1769,42 @@ const WsOrchestrationV2ApplySandboxChangesRpc = Rpc.make(
   },
 );
 
+const WsOrchestrationV2GetSandboxGuardRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.getSandboxGuard, {
+  payload: OpenShellThreadInput,
+  success: OpenShellSandboxGuard,
+  error: Schema.Union([OpenShellSandboxChangesError, EnvironmentAuthorizationError]),
+});
+
+const WsOrchestrationV2UpdateSandboxGuardRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.updateSandboxGuard,
+  {
+    payload: OpenShellUpdateGuardInput,
+    error: Schema.Union([OpenShellSandboxChangesError, EnvironmentAuthorizationError]),
+  },
+);
+
+const WsOrchestrationV2GetOpenShellOverviewRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.getOpenShellOverview,
+  {
+    payload: Schema.Struct({}),
+    success: OpenShellOverview,
+    error: Schema.Union([OpenShellSandboxChangesError, EnvironmentAuthorizationError]),
+  },
+);
+
+const WsOrchestrationV2SaveOpenShellCredentialRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.saveOpenShellCredential,
+  {
+    payload: OpenShellSaveCredentialInput,
+    error: Schema.Union([OpenShellSandboxChangesError, EnvironmentAuthorizationError]),
+  },
+);
+
+const WsOrchestrationV2ControlSandboxRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.controlSandbox, {
+  payload: OpenShellControlSandboxInput,
+  error: Schema.Union([OpenShellSandboxChangesError, EnvironmentAuthorizationError]),
+});
+
 const WsOrchestrationV2SearchThreadRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.searchThread, {
   payload: OrchestrationV2SearchThreadInput,
   success: OrchestrationV2SearchThreadResult,
@@ -2218,6 +2259,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2GetFullThreadDiffRpc,
   WsOrchestrationV2GetSandboxChangesRpc,
   WsOrchestrationV2ApplySandboxChangesRpc,
+  WsOrchestrationV2GetSandboxGuardRpc,
+  WsOrchestrationV2UpdateSandboxGuardRpc,
+  WsOrchestrationV2GetOpenShellOverviewRpc,
+  WsOrchestrationV2SaveOpenShellCredentialRpc,
+  WsOrchestrationV2ControlSandboxRpc,
   WsOrchestrationV2SearchThreadsRpc,
   WsOrchestrationV2SearchThreadRpc,
   WsOrchestrationV2SearchThreadStreamRpc,

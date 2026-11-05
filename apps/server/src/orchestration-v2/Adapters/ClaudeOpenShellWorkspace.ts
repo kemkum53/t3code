@@ -12,7 +12,11 @@ const quote = (value: string): string => `'${value.split("'").join("'\\''")}'`;
 /** Staging lives on the Linux filesystem: uploads from /mnt/<drive> lose their content. */
 const stagingRoot = (sandbox: string): string => `$HOME/.cache/t3-openshell/${sandbox}`;
 
-const linuxCommand = (target: OpenShellTarget, script: string, platform: NodeJS.Platform) =>
+const linuxCommand = (
+  target: Pick<OpenShellTarget, "wslDistro">,
+  script: string,
+  platform: NodeJS.Platform,
+) =>
   platform === "win32"
     ? {
         command: "wsl.exe",
@@ -55,8 +59,8 @@ const run = (
     child.stdin.end(input);
   });
 
-const runInLinux = (
-  target: OpenShellTarget,
+export const runInLinux = (
+  target: Pick<OpenShellTarget, "wslDistro">,
   script: string,
   platform: NodeJS.Platform,
   input?: Buffer,
@@ -89,6 +93,9 @@ const ensureSandbox = (target: OpenShellTarget, platform: NodeJS.Platform) => {
   return runInLinux(
     target,
     `openshell sandbox get ${name} </dev/null >/dev/null 2>&1 || ${create}
+if openshell sandbox list </dev/null | grep -q "^${target.sandbox} .*Stopped"; then
+  openshell sandbox start ${name} </dev/null >/dev/null
+fi
 i=0
 while [ "$i" -lt ${SANDBOX_READY_ATTEMPTS} ]; do
   openshell sandbox list </dev/null | grep -q "^${target.sandbox} .*Ready" && exit 0

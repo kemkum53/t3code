@@ -1,6 +1,8 @@
 import {
   OpenShellSandboxChangesError,
   OrchestrationDispatchCommandError,
+  type OpenShellControlSandboxInput,
+  type OpenShellUpdateGuardInput,
   type ProjectListEntriesInput,
   type ProjectReadFileInput,
 } from "@t3tools/contracts";
@@ -282,15 +284,26 @@ import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import { requestUrl } from "./requestUrl.ts";
 import {
+  allowEndpoint,
+  controlSandbox,
+  readGuard,
+  readOverview,
+  removeEndpoint,
+  saveCredential,
+} from "./orchestration-v2/Adapters/ClaudeOpenShellGuard.ts";
+import {
   applySandboxChanges,
   listSandboxEntries,
   readSandboxChanges,
   readSandboxFile,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellWorkspace.ts";
 import {
+  firstProfile,
   resolveSandboxForPath,
   resolveThreadSandbox,
 } from "./orchestration-v2/OpenShellThreadSandbox.ts";
+
+const isOpenShellError = Schema.is(OpenShellSandboxChangesError);
 
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
 const isProviderUploadFeedbackError = Schema.is(ProviderUploadFeedbackError);
@@ -1544,6 +1557,85 @@ export const layerWsRpc = (
           ? { entries: entries.value, truncated: false }
           : yield* workspaceEntries.list(input);
       });
+      const asOpenShellError = (message: string) =>
+        Effect.mapError((cause: unknown) =>
+          isOpenShellError(cause) ? cause : new OpenShellSandboxChangesError({ message, cause }),
+        );
+      const openShellCall = <A>(message: string, call: () => Promise<A>) =>
+        Effect.tryPromise({
+          try: call,
+          catch: (cause) => new OpenShellSandboxChangesError({ message, cause }),
+        });
+      const requireThreadSandbox = Effect.fn("ws.requireThreadSandbox")(function* (
+        threadId: ThreadId,
+      ) {
+        const sandbox = yield* threadSandbox(threadId);
+        if (sandbox === undefined) {
+          return yield* new OpenShellSandboxChangesError({
+            message: "This thread does not run in a sandbox",
+          });
+        }
+        return sandbox.target;
+      });
+      const readThreadGuard = Effect.fn("ws.readThreadGuard")(function* (threadId: ThreadId) {
+        const target = yield* requireThreadSandbox(threadId);
+        const platform = yield* HostProcess.Platform;
+        return yield* openShellCall("Failed to read sandbox rules", () =>
+          readGuard(target, platform),
+        );
+      });
+      const updateThreadGuard = Effect.fn("ws.updateThreadGuard")(function* (
+        input: OpenShellUpdateGuardInput,
+      ) {
+        const target = yield* requireThreadSandbox(input.threadId);
+        const platform = yield* HostProcess.Platform;
+        const { change } = input;
+        yield* openShellCall("Failed to change sandbox", () => {
+          switch (change.type) {
+            case "allow":
+              return allowEndpoint(target, change, platform);
+            case "remove":
+              return removeEndpoint(target, change, platform);
+            case "stop":
+            case "start":
+              return controlSandbox(target, change.type, platform);
+          }
+        });
+      });
+      const readOpenShellOverview = Effect.fn("ws.readOpenShellOverview")(function* () {
+        const settings = yield* serverSettings.getSettings;
+        const platform = yield* HostProcess.Platform;
+        return yield* openShellCall("Failed to read OpenShell status", () =>
+          readOverview(firstProfile(settings.providerInstances), platform),
+        );
+      });
+      const storeOpenShellCredential = Effect.fn("ws.storeOpenShellCredential")(function* (
+        token: string,
+      ) {
+        const settings = yield* serverSettings.getSettings;
+        const platform = yield* HostProcess.Platform;
+        yield* openShellCall("Failed to save the Claude token", () =>
+          saveCredential(firstProfile(settings.providerInstances), token, platform),
+        );
+      });
+      const controlNamedSandbox = Effect.fn("ws.controlNamedSandbox")(function* (
+        input: OpenShellControlSandboxInput,
+      ) {
+        const settings = yield* serverSettings.getSettings;
+        const platform = yield* HostProcess.Platform;
+        const target = resolveSandboxForPath(
+          `/sandbox/${input.sandbox}`,
+          settings.providerInstances,
+        );
+        if (target === undefined) {
+          return yield* new OpenShellSandboxChangesError({
+            message: `Unknown sandbox: ${input.sandbox}`,
+          });
+        }
+        yield* openShellCall("Failed to change sandbox", () =>
+          controlSandbox(target, input.action, platform),
+        );
+      });
       const readThreadSandboxChanges = Effect.fn("ws.readThreadSandboxChanges")(function* (
         threadId: ThreadId,
       ) {
@@ -2226,6 +2318,18 @@ export const layerWsRpc = (
                 }),
             ),
           ),
+        [ORCHESTRATION_V2_WS_METHODS.getSandboxGuard]: (input) =>
+          readThreadGuard(input.threadId).pipe(asOpenShellError("Failed to read sandbox rules")),
+        [ORCHESTRATION_V2_WS_METHODS.updateSandboxGuard]: (input) =>
+          updateThreadGuard(input).pipe(asOpenShellError("Failed to change sandbox")),
+        [ORCHESTRATION_V2_WS_METHODS.getOpenShellOverview]: () =>
+          readOpenShellOverview().pipe(asOpenShellError("Failed to read OpenShell status")),
+        [ORCHESTRATION_V2_WS_METHODS.saveOpenShellCredential]: (input) =>
+          storeOpenShellCredential(input.token).pipe(
+            asOpenShellError("Failed to save the Claude token"),
+          ),
+        [ORCHESTRATION_V2_WS_METHODS.controlSandbox]: (input) =>
+          controlNamedSandbox(input).pipe(asOpenShellError("Failed to change sandbox")),
         [ORCHESTRATION_V2_WS_METHODS.searchThread]: (input) =>
           threadManagement
             .searchThread(input)

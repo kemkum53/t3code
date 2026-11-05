@@ -159,6 +159,32 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
       idleTtlMs: 0,
       refreshIntervalMs: 10_000,
     }),
+    sandboxGuard: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:orchestration:sandbox-guard",
+      tag: ORCHESTRATION_V2_WS_METHODS.getSandboxGuard,
+      staleTimeMs: 0,
+      idleTtlMs: 0,
+      refreshIntervalMs: 5_000,
+    }),
+    updateSandboxGuard: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:orchestration:update-sandbox-guard",
+      tag: ORCHESTRATION_V2_WS_METHODS.updateSandboxGuard,
+    }),
+    openShellOverview: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:orchestration:openshell-overview",
+      tag: ORCHESTRATION_V2_WS_METHODS.getOpenShellOverview,
+      staleTimeMs: 0,
+      idleTtlMs: 0,
+      refreshIntervalMs: 15_000,
+    }),
+    saveOpenShellCredential: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:orchestration:save-openshell-credential",
+      tag: ORCHESTRATION_V2_WS_METHODS.saveOpenShellCredential,
+    }),
+    controlSandbox: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:orchestration:control-sandbox",
+      tag: ORCHESTRATION_V2_WS_METHODS.controlSandbox,
+    }),
     applySandboxChanges: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:orchestration:apply-sandbox-changes",
       tag: ORCHESTRATION_V2_WS_METHODS.applySandboxChanges,
