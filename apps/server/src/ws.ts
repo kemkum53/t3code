@@ -1,4 +1,8 @@
-import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
+import {
+  OpenShellSandboxChangesError,
+  OrchestrationDispatchCommandError,
+} from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -275,6 +279,11 @@ import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import { requestUrl } from "./requestUrl.ts";
+import {
+  applySandboxChanges,
+  readSandboxChanges,
+} from "./orchestration-v2/Adapters/ClaudeOpenShellWorkspace.ts";
+import { resolveThreadSandbox } from "./orchestration-v2/OpenShellThreadSandbox.ts";
 
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
 const isProviderUploadFeedbackError = Schema.is(ProviderUploadFeedbackError);
@@ -1471,6 +1480,54 @@ export const layerWsRpc = (
       const storageCleanup = yield* StorageCleanup.StorageCleanup;
       const databaseStorage = yield* DatabaseStorage.DatabaseStorage;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
+      const threadSandbox = (threadId: ThreadId) =>
+        Effect.all([
+          threadManagement.getThreadProjection(threadId),
+          serverSettings.getSettings,
+        ]).pipe(
+          Effect.map(([projection, settings]) =>
+            resolveThreadSandbox(projection, settings.providerInstances),
+          ),
+        );
+      const readThreadSandboxChanges = Effect.fn("ws.readThreadSandboxChanges")(function* (
+        threadId: ThreadId,
+      ) {
+        const sandbox = yield* threadSandbox(threadId);
+        if (sandbox === undefined) {
+          return { sandboxed: false, sandbox: null, files: [], diff: "" };
+        }
+        const platform = yield* HostProcess.Platform;
+        const { files, patch } = yield* Effect.tryPromise({
+          try: () => readSandboxChanges(sandbox.target, platform),
+          catch: (cause) =>
+            new OpenShellSandboxChangesError({
+              message: "Failed to read sandbox changes",
+              cause,
+            }),
+        });
+        return {
+          sandboxed: true,
+          sandbox: sandbox.target.sandbox,
+          files,
+          diff: patch.toString("utf8"),
+        };
+      });
+      const applyThreadSandboxChanges = Effect.fn("ws.applyThreadSandboxChanges")(function* (
+        threadId: ThreadId,
+      ) {
+        const sandbox = yield* threadSandbox(threadId);
+        if (sandbox === undefined) return { appliedFiles: 0 };
+        const platform = yield* HostProcess.Platform;
+        const appliedFiles = yield* Effect.tryPromise({
+          try: () => applySandboxChanges(sandbox.target, sandbox.hostCwd, platform),
+          catch: (cause) =>
+            new OpenShellSandboxChangesError({
+              message: "Failed to apply sandbox changes",
+              cause,
+            }),
+        });
+        return { appliedFiles };
+      });
       const secretResolver = yield* SecretResolver.SecretResolver;
       const peerLinks = yield* PeerLinks.PeerLinks;
       const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
@@ -2089,6 +2146,26 @@ export const layerWsRpc = (
               (cause) =>
                 new OrchestrationGetFullThreadDiffError({
                   message: "Failed to load full thread diff",
+                  cause,
+                }),
+            ),
+          ),
+        [ORCHESTRATION_V2_WS_METHODS.getSandboxChanges]: (input) =>
+          readThreadSandboxChanges(input.threadId).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OpenShellSandboxChangesError({
+                  message: "Failed to read sandbox changes",
+                  cause,
+                }),
+            ),
+          ),
+        [ORCHESTRATION_V2_WS_METHODS.applySandboxChanges]: (input) =>
+          applyThreadSandboxChanges(input.threadId).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OpenShellSandboxChangesError({
+                  message: "Failed to apply sandbox changes",
                   cause,
                 }),
             ),

@@ -117,6 +117,12 @@ import {
   OrchestrationGetTurnDiffError,
 } from "./checkpointDiff.ts";
 import {
+  OpenShellApplyResult,
+  OpenShellSandboxChanges,
+  OpenShellSandboxChangesError,
+  OpenShellThreadInput,
+} from "./openShell.ts";
+import {
   WorktreeSetupCancelInput,
   WorktreeSetupCancelResult,
   WorktreeSetupStreamEvent,
@@ -1740,6 +1746,24 @@ const WsOrchestrationV2GetFullThreadDiffRpc = Rpc.make(
   },
 );
 
+const WsOrchestrationV2GetSandboxChangesRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.getSandboxChanges,
+  {
+    payload: OpenShellThreadInput,
+    success: OpenShellSandboxChanges,
+    error: Schema.Union([OpenShellSandboxChangesError, EnvironmentAuthorizationError]),
+  },
+);
+
+const WsOrchestrationV2ApplySandboxChangesRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.applySandboxChanges,
+  {
+    payload: OpenShellThreadInput,
+    success: OpenShellApplyResult,
+    error: Schema.Union([OpenShellSandboxChangesError, EnvironmentAuthorizationError]),
+  },
+);
+
 const WsOrchestrationV2SearchThreadRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.searchThread, {
   payload: OrchestrationV2SearchThreadInput,
   success: OrchestrationV2SearchThreadResult,
@@ -2192,6 +2216,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2GetTurnItemRpc,
   WsOrchestrationV2GetTurnDiffRpc,
   WsOrchestrationV2GetFullThreadDiffRpc,
+  WsOrchestrationV2GetSandboxChangesRpc,
+  WsOrchestrationV2ApplySandboxChangesRpc,
   WsOrchestrationV2SearchThreadsRpc,
   WsOrchestrationV2SearchThreadRpc,
   WsOrchestrationV2SearchThreadStreamRpc,

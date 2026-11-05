@@ -172,6 +172,7 @@ import {
 } from "../../claudeModelOptions.ts";
 import * as ServerConfig from "../../config.ts";
 import { resolveOpenShellTarget, spawnClaudeInOpenShell } from "./ClaudeOpenShellSpawn.ts";
+import { stageProject } from "./ClaudeOpenShellWorkspace.ts";
 import * as PortScanner from "../../preview/PortScanner.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
@@ -1231,6 +1232,13 @@ export const layerQueryRunner: Layer.Layer<
             stderrTail = (stderrTail + text).slice(-CLAUDE_STDERR_TAIL_LENGTH);
           };
           const openShellTarget = resolveOpenShellTarget(queryOptions.env);
+          if (openShellTarget !== undefined && queryOptions.cwd !== undefined) {
+            const hostCwd = queryOptions.cwd;
+            yield* Effect.tryPromise({
+              try: () => stageProject(openShellTarget, hostCwd, platform),
+              catch: (cause) => queryRunnerError(cause, "query"),
+            });
+          }
           const spawnProcess =
             options.spawnClaudeCodeProcess ??
             ((spawnOptions: ClaudeSpawnOptions) => {

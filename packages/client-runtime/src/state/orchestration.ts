@@ -152,6 +152,17 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
       tag: ORCHESTRATION_V2_WS_METHODS.getFullThreadDiff,
       ...onCheckpointDiffAnswer,
     }),
+    sandboxChanges: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:orchestration:sandbox-changes",
+      tag: ORCHESTRATION_V2_WS_METHODS.getSandboxChanges,
+      staleTimeMs: 0,
+      idleTtlMs: 0,
+      refreshIntervalMs: 10_000,
+    }),
+    applySandboxChanges: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:orchestration:apply-sandbox-changes",
+      tag: ORCHESTRATION_V2_WS_METHODS.applySandboxChanges,
+    }),
     threadFind: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:thread-find",
       tag: ORCHESTRATION_V2_WS_METHODS.searchThread,

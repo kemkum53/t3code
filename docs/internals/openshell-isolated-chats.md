@@ -45,6 +45,14 @@ sit beside normal chats in the same project, and their guard rules are managed f
    - account: show `claude setup-token`, paste the token, store it through stdin
    - verify: start a test box and send a request
 7. Credentials reach the gateway through stdin only, never through argv.
+8. An isolated chat can start without a project, on an empty workspace with no apply step.
+9. Network rules, filesystem rules and templates are all editable from the guard panel.
+
+## Project files
+
+- Tracked files are copied to the WSL filesystem, then uploaded. Ignored files such as `.env` stay out.
+- The box gets a baseline commit, so its changes come back as `git diff --binary`.
+- The agent never touches host files. A patch reaches the project only after the user applies it.
 
 ## Known constraints
 
@@ -71,7 +79,10 @@ sit beside normal chats in the same project, and their guard rules are managed f
 - [x] Dev environment for the fork (Node 26, pnpm)
 - [x] Spike: Agent SDK session runs in a sandbox through `spawnClaudeCodeProcess`
 - [x] Spike: same flow from a real T3 thread
-- [ ] File round trip and checkpoints
+- [x] File round trip
+- [x] Approval cards in Supervised mode
+- [ ] Diff review and apply in the UI
+- [ ] Project-less isolated chat
 - [ ] Settings page and setup wizard
 - [ ] New chat flow and sidebar marker
 - [ ] Guard panel and approval cards

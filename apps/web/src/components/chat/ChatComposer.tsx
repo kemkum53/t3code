@@ -119,6 +119,7 @@ import {
 import type { ThreadSyncPhase } from "../../threadSync";
 import { ComposerBanner } from "./ComposerBanner";
 import { ComposerSurface } from "./ComposerSurface";
+import { useSandboxChangesBanner } from "./useSandboxChangesBanner";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./ComposerBannerStack";
 import {
   attachmentsToReleaseOnUploadCapabilityLoss,
@@ -2363,13 +2364,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       getModelDisabledReason={getModelDisabledReason}
     />
   );
+  const sandboxChangesBanner = useSandboxChangesBanner({
+    environmentId,
+    threadId: activeThreadId,
+    phase,
+  });
   // An open question owns the space above the composer. Only a machine problem,
   // which is why an answer could not go through, stays beside it.
+  const baseBannerItems =
+    sandboxChangesBanner === null
+      ? props.bannerItems
+      : [...props.bannerItems, sandboxChangesBanner];
   const bannerItems: readonly ComposerBannerStackItem[] =
     runtimeModeCeilingDenial === undefined || activePendingProgress
-      ? props.bannerItems
+      ? baseBannerItems
       : [
-          ...props.bannerItems,
+          ...baseBannerItems,
           {
             id: "managed-runtime-mode",
             variant: "warning",
