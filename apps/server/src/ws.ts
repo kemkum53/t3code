@@ -1,6 +1,7 @@
 import {
   OpenShellSandboxChangesError,
   OrchestrationDispatchCommandError,
+  type ProjectReadFileInput,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
@@ -282,8 +283,12 @@ import { requestUrl } from "./requestUrl.ts";
 import {
   applySandboxChanges,
   readSandboxChanges,
+  readSandboxFile,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellWorkspace.ts";
-import { resolveThreadSandbox } from "./orchestration-v2/OpenShellThreadSandbox.ts";
+import {
+  resolveSandboxForPath,
+  resolveThreadSandbox,
+} from "./orchestration-v2/OpenShellThreadSandbox.ts";
 
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
 const isProviderUploadFeedbackError = Schema.is(ProviderUploadFeedbackError);
@@ -1489,6 +1494,25 @@ export const layerWsRpc = (
             resolveThreadSandbox(projection, settings.providerInstances),
           ),
         );
+      const readProjectFile = Effect.fn("ws.readProjectFile")(function* (
+        input: ProjectReadFileInput,
+      ) {
+        const settings = yield* serverSettings.getSettings.pipe(Effect.option);
+        const target = Option.map(settings, ({ providerInstances }) =>
+          resolveSandboxForPath(input.relativePath, providerInstances),
+        ).pipe(Option.getOrUndefined);
+        if (target === undefined) return yield* workspaceFileSystem.readFile(input);
+        const platform = yield* HostProcess.Platform;
+        const file = yield* Effect.tryPromise({
+          try: () => readSandboxFile(target, input.relativePath, platform),
+          catch: (cause) =>
+            new OpenShellSandboxChangesError({
+              message: "Failed to read sandbox file",
+              cause,
+            }),
+        }).pipe(Effect.option);
+        return Option.isSome(file) ? file.value : yield* workspaceFileSystem.readFile(input);
+      });
       const readThreadSandboxChanges = Effect.fn("ws.readThreadSandboxChanges")(function* (
         threadId: ThreadId,
       ) {
@@ -3011,7 +3035,7 @@ export const layerWsRpc = (
             ),
           ),
         [WS_METHODS.projectsReadFile]: (input) =>
-          workspaceFileSystem.readFile(input).pipe(
+          readProjectFile(input).pipe(
             Effect.mapError(
               (cause) =>
                 new ProjectReadFileError({

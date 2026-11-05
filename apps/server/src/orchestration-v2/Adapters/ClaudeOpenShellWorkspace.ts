@@ -5,6 +5,7 @@ import * as NodePath from "node:path";
 import type { OpenShellTarget } from "./ClaudeOpenShellSpawn.ts";
 
 const BASELINE_MESSAGE = "T3 baseline";
+const SANDBOX_READ_MAX_BYTES = 1024 * 1024;
 
 const quote = (value: string): string => `'${value.split("'").join("'\\''")}'`;
 
@@ -112,6 +113,28 @@ const execBoxIfPresent = async (target: OpenShellTarget, platform: NodeJS.Platfo
     platform,
   );
   return result.toString().trim().endsWith("yes");
+};
+
+/** Reads through the sandbox because the path does not exist on the host. */
+export const readSandboxFile = async (
+  target: OpenShellTarget,
+  absolutePath: string,
+  platform: NodeJS.Platform,
+) => {
+  const output = await execInBox(
+    target,
+    `head -c ${SANDBOX_READ_MAX_BYTES + 1} -- ${quote(absolutePath)}`,
+    platform,
+  );
+  const truncated = output.length > SANDBOX_READ_MAX_BYTES;
+  const bytes = output.subarray(0, SANDBOX_READ_MAX_BYTES);
+  return {
+    relativePath: absolutePath,
+    contents: new TextDecoder("utf-8").decode(bytes, { stream: truncated }),
+    byteLength: bytes.length,
+    truncated,
+    exists: true,
+  };
 };
 
 export interface SandboxChange {
