@@ -19,16 +19,18 @@ sit beside normal chats in the same project, and their guard rules are managed f
 
 ## Measured on 2026-11-05 (OpenShell 0.1.7)
 
-| Check | Result |
-|---|---|
-| Sandbox ready, image cached | 4 to 12 s |
-| Landlock `hard_requirement` | Starts |
-| Writes to `/etc`, `/usr/bin`, `mount` | Denied |
-| Internet, LAN, host, metadata without a rule | Denied |
-| Per-binary rule | `curl` denied where `claude` is allowed |
-| Two-way stream-json over `sandbox exec` | Two messages, two results |
-| Network rule change while running | Applied without restart |
-| Subscription through provider | Request works, sandbox holds only a placeholder |
+| Check                                          | Result                                                 |
+| ---------------------------------------------- | ------------------------------------------------------ |
+| Sandbox ready, image cached                    | 4 to 12 s                                              |
+| Landlock `hard_requirement`                    | Starts                                                 |
+| Writes to `/etc`, `/usr/bin`, `mount`          | Denied                                                 |
+| Internet, LAN, host, metadata without a rule   | Denied                                                 |
+| Per-binary rule                                | `curl` denied where `claude` is allowed                |
+| Two-way stream-json over `sandbox exec`        | Two messages, two results                              |
+| Network rule change while running              | Applied without restart                                |
+| Subscription through provider                  | Request works, sandbox holds only a placeholder        |
+| Agent SDK through `wsl.exe` and `sandbox exec` | Two turns in one session, Read and Bash ran in the box |
+| `canUseTool` approval                          | Round trip from the box to the host works              |
 
 ## Requirements
 
@@ -66,8 +68,9 @@ sit beside normal chats in the same project, and their guard rules are managed f
 
 - [x] Pilot on PC and Raspberry Pi
 - [x] Subscription through a provider
-- [ ] Dev environment for the fork (Node 26, pnpm)
-- [ ] Spike: one thread runs through `spawnClaudeCodeProcess`
+- [x] Dev environment for the fork (Node 26, pnpm)
+- [x] Spike: Agent SDK session runs in a sandbox through `spawnClaudeCodeProcess`
+- [ ] Spike: same flow from a real T3 thread
 - [ ] File round trip and checkpoints
 - [ ] Settings page and setup wizard
 - [ ] New chat flow and sidebar marker

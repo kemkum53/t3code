@@ -171,6 +171,7 @@ import {
   type CompiledClaudeModelSelection,
 } from "../../claudeModelOptions.ts";
 import * as ServerConfig from "../../config.ts";
+import { resolveOpenShellTarget, spawnClaudeInOpenShell } from "./ClaudeOpenShellSpawn.ts";
 import * as PortScanner from "../../preview/PortScanner.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
@@ -1229,9 +1230,18 @@ export const layerQueryRunner: Layer.Layer<
             if (answered) return;
             stderrTail = (stderrTail + text).slice(-CLAUDE_STDERR_TAIL_LENGTH);
           };
+          const openShellTarget = resolveOpenShellTarget(queryOptions.env);
           const spawnProcess =
             options.spawnClaudeCodeProcess ??
             ((spawnOptions: ClaudeSpawnOptions) => {
+              if (openShellTarget !== undefined) {
+                return spawnClaudeInOpenShell(
+                  openShellTarget,
+                  spawnOptions,
+                  platform,
+                  appendStderr,
+                );
+              }
               if (platform !== "win32") {
                 // Node can report "exit" before it has read the stderr the CLI wrote.
                 let stderrDone = () => {};
