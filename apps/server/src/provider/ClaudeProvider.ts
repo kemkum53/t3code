@@ -55,6 +55,7 @@ import {
   resolveClaudeModelsForVersion,
   resolveClaudeUpdateRequiredModels,
 } from "./ClaudeModelCatalog.ts";
+import { resolveOpenShellTarget } from "../orchestration-v2/Adapters/ClaudeOpenShellSpawn.ts";
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
@@ -659,7 +660,13 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     (endpoint.protocol === "http:" || endpoint.protocol === "https:") &&
     endpoint.hostname !== "" &&
     endpoint.hostname !== "api.anthropic.com";
-  if (!customApiEndpoint && claudeAuthStatus(capabilities) === "unauthenticated") {
+  // A sandbox's credential lives on its gateway, so the host login says nothing about it.
+  const openShellSandbox = resolveOpenShellTarget(resolvedEnvironment) !== undefined;
+  if (
+    !customApiEndpoint &&
+    !openShellSandbox &&
+    claudeAuthStatus(capabilities) === "unauthenticated"
+  ) {
     return buildServerProvider({
       presentation: CLAUDE_PRESENTATION,
       enabled: claudeSettings.enabled,
@@ -681,6 +688,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   // A proxy's ANTHROPIC_AUTH_TOKEN reads as an API key; the endpoint is what the token is for.
   const authMetadata =
     apiProviderAuthMetadata(capabilities.apiProvider) ??
+    (openShellSandbox ? { type: "customEndpoint", label: "OpenShell sandbox" } : undefined) ??
     (customApiEndpoint ? { type: "customEndpoint", label: "Custom API endpoint" } : undefined) ??
     claudeAuthMetadata({
       subscriptionType: capabilities.subscriptionType,

@@ -70,7 +70,7 @@ sit beside normal chats in the same project, and their guard rules are managed f
 - [x] Subscription through a provider
 - [x] Dev environment for the fork (Node 26, pnpm)
 - [x] Spike: Agent SDK session runs in a sandbox through `spawnClaudeCodeProcess`
-- [ ] Spike: same flow from a real T3 thread
+- [x] Spike: same flow from a real T3 thread
 - [ ] File round trip and checkpoints
 - [ ] Settings page and setup wizard
 - [ ] New chat flow and sidebar marker
