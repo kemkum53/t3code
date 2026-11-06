@@ -103,7 +103,7 @@ import {
   EnvironmentAuthorizationError,
   type ProjectId,
   type ProviderDriverKind,
-  type ProviderInstanceId,
+  ProviderInstanceId,
   ThreadId,
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
@@ -294,10 +294,17 @@ import {
   saveCredential,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellGuard.ts";
 import {
+  firstClaudeBinaryPath,
+  runSetup,
+  setupFailureMessage,
+  setupTemplates,
+} from "./orchestration-v2/Adapters/ClaudeOpenShellSetup.ts";
+import {
   applySandboxChanges,
   listSandboxEntries,
   readSandboxChanges,
   readSandboxFile,
+  resolveHostDistro,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellWorkspace.ts";
 import {
   firstProfile,
@@ -1628,6 +1635,29 @@ export const layerWsRpc = (
           saveCredential(firstProfile(settings.providerInstances), token, platform),
         );
       });
+      const runOpenShellSetup = Effect.fn("ws.runOpenShellSetup")(function* (sudoPassword: string) {
+        const settings = yield* serverSettings.getSettings;
+        const platform = yield* HostProcess.Platform;
+        const profile = firstProfile(settings.providerInstances);
+        const distro = yield* Effect.tryPromise({
+          try: async () => {
+            const resolved = await resolveHostDistro(profile?.wslDistro, platform);
+            await runSetup(resolved, sudoPassword, platform);
+            return resolved;
+          },
+          catch: (cause) =>
+            new OpenShellSandboxChangesError({ message: setupFailureMessage(cause), cause }),
+        });
+        if (profile !== undefined) return;
+        const binaryPath = firstClaudeBinaryPath(settings.providerInstances);
+        for (const [instanceId, instance] of setupTemplates(distro, binaryPath)) {
+          yield* serverSettings.updateProviderInstance({
+            operation: "create",
+            instanceId: ProviderInstanceId.make(instanceId),
+            instance,
+          });
+        }
+      });
       const controlNamedSandbox = Effect.fn("ws.controlNamedSandbox")(function* (
         input: OpenShellControlSandboxInput,
       ) {
@@ -2351,6 +2381,8 @@ export const layerWsRpc = (
           storeOpenShellCredential(input.token).pipe(
             asOpenShellError("Failed to save the Claude token"),
           ),
+        [ORCHESTRATION_V2_WS_METHODS.setupOpenShell]: (input) =>
+          runOpenShellSetup(input.sudoPassword).pipe(asOpenShellError("OpenShell setup failed")),
         [ORCHESTRATION_V2_WS_METHODS.controlSandbox]: (input) =>
           controlNamedSandbox(input).pipe(asOpenShellError("Failed to change sandbox")),
         [ORCHESTRATION_V2_WS_METHODS.searchThread]: (input) =>

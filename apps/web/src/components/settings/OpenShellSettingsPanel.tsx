@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, OpenShellSandboxSummary } from "@t3tools/contracts";
+import type { EnvironmentId, OpenShellOverview, OpenShellSandboxSummary } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -16,6 +16,15 @@ import { toastManager } from "../ui/toast";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 
 const SETUP_TOKEN_COMMAND = "claude setup-token";
+const INSTALL_LINUX_COMMAND = "wsl --install -d Ubuntu-24.04";
+const SETUP_POLL_MS = 3_000;
+const SETUP_STEP_LABELS: Readonly<Record<string, string>> = {
+  check: "Checking this machine",
+  package: "Installing OpenShell",
+  gateway: "Starting the gateway",
+  image: "Building the sandbox image",
+  done: "Finishing",
+};
 
 const reportFailure = (title: string, result: unknown) => {
   const error = squashAtomCommandFailure(result as never);
@@ -71,6 +80,78 @@ function CredentialRow(props: {
           />
           <Button type="submit" size="sm" disabled={saving || token.trim() === ""}>
             Save
+          </Button>
+        </form>
+      }
+    />
+  );
+}
+
+function SetupRow(props: {
+  readonly environmentId: EnvironmentId;
+  readonly overview: OpenShellOverview;
+  readonly onChanged: () => void;
+}) {
+  const { environmentId, overview, onChanged } = props;
+  const setup = useAtomCommand(orchestrationEnvironment.setupOpenShell);
+  const [password, setPassword] = useState("");
+  const [started, setStarted] = useState(false);
+  const running = started || overview.setupStep !== null;
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- polling timer while the server runs setup
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(onChanged, SETUP_POLL_MS);
+    return () => clearInterval(timer);
+  }, [running, onChanged]);
+
+  const submit = async () => {
+    setStarted(true);
+    const result = await setup({ environmentId, input: { sudoPassword: password } });
+    setStarted(false);
+    setPassword("");
+    onChanged();
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) reportFailure("OpenShell was not set up", result);
+      return;
+    }
+    toastManager.add({
+      type: "success",
+      title: "OpenShell installed and sandbox templates added",
+    });
+  };
+
+  const missingPassword = overview.sudoNeedsPassword && password === "";
+  return (
+    <SettingsRow
+      title="Set up this machine"
+      description="Installs OpenShell and builds the sandbox image. Uses about 1 GB of disk."
+      status={
+        running
+          ? (SETUP_STEP_LABELS[overview.setupStep ?? "check"] ?? overview.setupStep)
+          : undefined
+      }
+      control={
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          {overview.sudoNeedsPassword ? (
+            <Input
+              aria-label="Linux password"
+              autoComplete="off"
+              disabled={running}
+              placeholder="Linux password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          ) : null}
+          <Button type="submit" size="sm" disabled={running || missingPassword}>
+            {running ? "Installing" : "Install"}
           </Button>
         </form>
       }
@@ -162,9 +243,25 @@ function OpenShellOverviewContent(props: { readonly environmentId: EnvironmentId
     );
   }
   const yesNo = (ok: boolean, good: string, bad: string) => (ok ? good : bad);
+  const installed =
+    overview.configured &&
+    overview.version !== null &&
+    overview.gatewayActive &&
+    overview.imageAvailable;
   return (
     <>
       <SettingsSection title="This machine">
+        {overview.linuxAvailable ? (
+          installed ? null : (
+            <SetupRow environmentId={environmentId} overview={overview} onChanged={query.refresh} />
+          )
+        ) : (
+          <SettingsRow
+            title="Linux"
+            status="Missing"
+            description={`Run ${INSTALL_LINUX_COMMAND} in an administrator terminal, then open this page again.`}
+          />
+        )}
         <SettingsRow title="OpenShell" status={overview.version ?? "Not installed"} />
         <SettingsRow
           title="Gateway"

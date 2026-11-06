@@ -181,6 +181,10 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
       label: "environment-data:orchestration:save-openshell-credential",
       tag: ORCHESTRATION_V2_WS_METHODS.saveOpenShellCredential,
     }),
+    setupOpenShell: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:orchestration:setup-openshell",
+      tag: ORCHESTRATION_V2_WS_METHODS.setupOpenShell,
+    }),
     controlSandbox: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:orchestration:control-sandbox",
       tag: ORCHESTRATION_V2_WS_METHODS.controlSandbox,

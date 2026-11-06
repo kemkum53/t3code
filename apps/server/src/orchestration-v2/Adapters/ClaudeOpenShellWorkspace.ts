@@ -69,6 +69,23 @@ export const runInLinux = (
   return run(command, args, input);
 };
 
+/** Docker Desktop adds its own distros, and they cannot host a sandbox. */
+export const parseDistroList = (listing: Buffer): ReadonlyArray<string> =>
+  listing
+    .toString("utf16le")
+    .split(/\r?\n/)
+    .map((name) => name.split("\0").join("").trim())
+    .filter((name) => name !== "" && !name.startsWith("docker-"));
+
+/** A machine with no template yet still has to name a distro, or Docker's default may win. */
+export const resolveHostDistro = async (
+  configured: string | undefined,
+  platform: NodeJS.Platform,
+): Promise<string | undefined> => {
+  if (configured !== undefined || platform !== "win32") return configured;
+  return parseDistroList(await run("wsl.exe", ["-l", "-q"]).catch(() => Buffer.alloc(0)))[0];
+};
+
 const execInBox = (target: OpenShellTarget, script: string, platform: NodeJS.Platform) =>
   runInLinux(
     target,

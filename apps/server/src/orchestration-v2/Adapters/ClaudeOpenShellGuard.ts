@@ -7,7 +7,12 @@ import type {
 } from "@t3tools/contracts";
 
 import type { OpenShellProfile, OpenShellTarget } from "./ClaudeOpenShellSpawn.ts";
-import { quoteForShell as quote, runInLinux } from "./ClaudeOpenShellWorkspace.ts";
+import { DEFAULT_IMAGE_PATH, isSetupRunning, SETUP_STEP_FILE } from "./ClaudeOpenShellSetup.ts";
+import {
+  quoteForShell as quote,
+  resolveHostDistro,
+  runInLinux,
+} from "./ClaudeOpenShellWorkspace.ts";
 
 const HOST_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9.-]*$/;
 const BINARY_PATTERN = /^\/[\w./+-]+$/;
@@ -194,12 +199,15 @@ export const controlSandbox = async (
 };
 
 const HOST_CHECK_SCRIPT = (profile: OpenShellProfile | undefined): string => {
-  const image = profile?.image ?? "";
+  const image = profile?.image ?? DEFAULT_IMAGE_PATH;
   const provider = quote(profile?.provider ?? DEFAULT_CREDENTIAL_PROVIDER);
   return `echo "version=$(openshell --version 2>/dev/null)"
 echo "gateway=$(XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active openshell-gateway 2>/dev/null)"
-[ -r /dev/kvm ] && [ -w /dev/kvm ] && echo "kvm=yes" || echo "kvm=no"
-[ -n "${image}" ] && [ -e "${image}" ] && echo "image=yes" || echo "image=no"
+[ -e /dev/kvm ] && echo "kvm=yes" || echo "kvm=no"
+[ -e "${image}" ] && echo "image=yes" || echo "image=no"
+command -v apt-get >/dev/null && echo "apt=yes" || echo "apt=no"
+sudo -n true 2>/dev/null && echo "sudo=open" || echo "sudo=password"
+echo "step=$(cat "${SETUP_STEP_FILE}" 2>/dev/null)"
 openshell provider get ${provider} </dev/null >/dev/null 2>&1 && echo "credential=yes" || echo "credential=no"
 echo "freeGb=$(df -BG --output=avail "$HOME" | tail -1 | tr -dc 0-9)"
 exit 0`;
@@ -221,15 +229,20 @@ export const readOverview = async (
   profile: OpenShellProfile | undefined,
   platform: NodeJS.Platform,
 ): Promise<OpenShellOverview> => {
-  const host = { wslDistro: profile?.wslDistro };
+  const host = { wslDistro: await resolveHostDistro(profile?.wslDistro, platform) };
   const checks = parseHostChecks(
-    (await runInLinux(host, HOST_CHECK_SCRIPT(profile), platform)).toString("utf8"),
+    await runInLinux(host, HOST_CHECK_SCRIPT(profile), platform)
+      .then((output) => output.toString("utf8"))
+      .catch(() => ""),
   );
   const list = await runInLinux(host, "exec openshell sandbox list -o json </dev/null", platform)
     .then((output) => parseSandboxList(output.toString("utf8")))
     .catch(() => []);
   return {
     configured: profile !== undefined,
+    linuxAvailable: checks.apt === "yes",
+    sudoNeedsPassword: checks.sudo !== "open",
+    setupStep: isSetupRunning() ? checks.step || "check" : null,
     version: checks.version || null,
     gatewayActive: checks.gateway === "active",
     kvmAvailable: checks.kvm === "yes",
@@ -253,5 +266,10 @@ if openshell provider get ${provider} </dev/null >/dev/null 2>&1; then
   exec openshell provider update ${provider} --from-existing </dev/null
 fi
 exec openshell provider create --name ${provider} --type ${CREDENTIAL_PROFILE} --from-existing </dev/null`;
-  await runInLinux({ wslDistro: profile?.wslDistro }, script, platform, Buffer.from(`${token}\n`));
+  await runInLinux(
+    { wslDistro: await resolveHostDistro(profile?.wslDistro, platform) },
+    script,
+    platform,
+    Buffer.from(`${token}\n`),
+  );
 };

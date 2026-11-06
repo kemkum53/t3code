@@ -25,6 +25,7 @@ const RPC_AGGREGATES = {
   [ORCHESTRATION_V2_WS_METHODS.updateSandboxGuard]: "orchestration",
   [ORCHESTRATION_V2_WS_METHODS.getOpenShellOverview]: "orchestration",
   [ORCHESTRATION_V2_WS_METHODS.saveOpenShellCredential]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.setupOpenShell]: "orchestration",
   [ORCHESTRATION_V2_WS_METHODS.controlSandbox]: "orchestration",
   [ORCHESTRATION_V2_WS_METHODS.searchThreads]: "orchestration",
   [ORCHESTRATION_V2_WS_METHODS.searchThread]: "orchestration",

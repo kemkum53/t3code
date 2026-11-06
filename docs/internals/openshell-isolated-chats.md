@@ -32,6 +32,29 @@ sit beside normal chats in the same project, and their guard rules are managed f
 | Agent SDK through `wsl.exe` and `sandbox exec` | Two turns in one session, Read and Bash ran in the box |
 | `canUseTool` approval                          | Round trip from the box to the host works              |
 
+## Setup measured on 2026-11-06
+
+Clean Ubuntu 24.04 WSL distro, non-root user, sudo password required.
+
+| Check                              | Result                                  |
+| ---------------------------------- | --------------------------------------- |
+| Full setup                         | 87 s                                    |
+| Second run                         | 0 s, every step skips                   |
+| Wrong sudo password                | Stops with a clear message              |
+| Disk used                          | About 1 GB                              |
+| Image size                         | 607 MB, down from 842 MB                |
+| Box ready from the built image     | 17 s                                    |
+| Inside the box                     | Claude runs, `/etc` and internet denied |
+| Leftovers in `/var/tmp` and mounts | None                                    |
+
+The image is built on the user's machine from Ubuntu Base in a chroot, so setup needs no Docker and
+no one redistributes Claude Code. Downloads are pinned by SHA-256.
+
+## Distribution
+
+T3 Code has no plugin system and upstream does not take large features, so this ships as a fork with
+its own installer. A user still has to install WSL with Ubuntu and paste a setup token.
+
 ## Requirements
 
 1. New chat dialog offers normal or isolated, then template and machine.
@@ -87,7 +110,7 @@ sit beside normal chats in the same project, and their guard rules are managed f
 - [x] Settings page: machine checks, token, sandbox list
 - [x] Sidebar marker and template instances
 - [x] Guard dialog: network rules, denials, stop and start
-- [ ] Install steps in the settings page
-- [ ] Delete warning for unapplied changes
+- [x] Install steps in the settings page
+- [x] Delete warning for unapplied changes
 - [ ] Stop idle boxes automatically
 - [ ] Raspberry Pi support

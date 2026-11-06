@@ -52,6 +52,7 @@ export const RPC_REQUIRED_SCOPES = {
   [ORCHESTRATION_V2_WS_METHODS.updateSandboxGuard]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.getOpenShellOverview]: AuthOrchestrationReadScope,
   [ORCHESTRATION_V2_WS_METHODS.saveOpenShellCredential]: AuthOrchestrationOperateScope,
+  [ORCHESTRATION_V2_WS_METHODS.setupOpenShell]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.controlSandbox]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.searchThreads]: AuthOrchestrationReadScope,
   [ORCHESTRATION_V2_WS_METHODS.searchThread]: AuthOrchestrationReadScope,

@@ -98,6 +98,9 @@ export type OpenShellSandboxSummary = typeof OpenShellSandboxSummary.Type;
 
 export const OpenShellOverview = Schema.Struct({
   configured: Schema.Boolean,
+  linuxAvailable: Schema.Boolean,
+  sudoNeedsPassword: Schema.Boolean,
+  setupStep: Schema.NullOr(TrimmedNonEmptyString),
   version: Schema.NullOr(TrimmedNonEmptyString),
   gatewayActive: Schema.Boolean,
   kvmAvailable: Schema.Boolean,
@@ -110,6 +113,9 @@ export type OpenShellOverview = typeof OpenShellOverview.Type;
 
 export const OpenShellSaveCredentialInput = Schema.Struct({ token: TrimmedNonEmptyString });
 export type OpenShellSaveCredentialInput = typeof OpenShellSaveCredentialInput.Type;
+
+export const OpenShellSetupInput = Schema.Struct({ sudoPassword: Schema.String });
+export type OpenShellSetupInput = typeof OpenShellSetupInput.Type;
 
 export const OpenShellControlSandboxInput = Schema.Struct({
   sandbox: TrimmedNonEmptyString,
