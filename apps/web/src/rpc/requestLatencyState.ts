@@ -1,4 +1,4 @@
-import { WS_METHODS } from "@t3tools/contracts";
+import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
 import { appAtomRegistry } from "./atomRegistry";
@@ -28,11 +28,16 @@ interface PendingRpcAckRequest {
 const pendingRpcAckRequests = new Map<string, PendingRpcAckRequest>();
 // Background reports nobody waits on. A busy host delays them first, and warning
 // about a request the user never made does not say what is wrong. A sign-in wait
-// lasts as long as the user takes on the forge.
+// lasts as long as the user takes on the forge. Sandbox work takes minutes and
+// shows its own progress on screen.
 const untrackedRpcAckMethods = new Set<string>([
   WS_METHODS.serverGetUsageSummary,
   WS_METHODS.serverReportClientActivity,
   WS_METHODS.sourceControlSignInWait,
+  ORCHESTRATION_V2_WS_METHODS.setupOpenShell,
+  ORCHESTRATION_V2_WS_METHODS.saveOpenShellTemplate,
+  ORCHESTRATION_V2_WS_METHODS.updateSandboxGuard,
+  ORCHESTRATION_V2_WS_METHODS.controlSandbox,
 ]);
 const longRunningRpcAckMethods = new Set<string>([
   WS_METHODS.serverUpdateProvider,

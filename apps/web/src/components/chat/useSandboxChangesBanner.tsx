@@ -144,6 +144,22 @@ export function useSandboxWorkdir(environmentId: EnvironmentId, threadId: Thread
   return query.data?.workdir ?? null;
 }
 
+/** A message sent now would race the restart, so the composer waits. */
+export function useSandboxStarting(environmentId: EnvironmentId, threadId: ThreadId | null) {
+  const query = useEnvironmentQuery(
+    threadId === null
+      ? null
+      : orchestrationEnvironment.sandboxRequests({ environmentId, input: { threadId } }),
+  );
+  const access = query.data;
+  return (
+    access !== null &&
+    access.sandboxed &&
+    access.phase !== null &&
+    sandboxStateOfPhase(access.phase) === "starting"
+  );
+}
+
 /** Sandboxed threads work on a copy, so their edits wait here until the user applies them. */
 export function useSandboxChangesBanner(input: {
   readonly environmentId: EnvironmentId;

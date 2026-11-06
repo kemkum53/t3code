@@ -1535,6 +1535,9 @@ export const layerWsRpc = (
             resolveThreadSandbox(threadId, projection, settings.providerInstances),
           ),
         );
+      // A draft has no thread record until its first message, and the chat polls it anyway.
+      const polledThreadSandbox = (threadId: ThreadId) =>
+        threadSandbox(threadId).pipe(Effect.orElseSucceed(() => undefined));
       const sandboxForPath = (path: string) =>
         serverSettings.getSettings.pipe(
           Effect.option,
@@ -1622,7 +1625,7 @@ export const layerWsRpc = (
             new OpenShellSandboxChangesError({ message: setupFailureMessage(cause), cause }),
         });
       const readThreadRequests = Effect.fn("ws.readThreadRequests")(function* (threadId: ThreadId) {
-        const sandbox = yield* threadSandbox(threadId);
+        const sandbox = yield* polledThreadSandbox(threadId);
         if (sandbox === undefined) {
           return {
             sandboxed: false,
@@ -1833,7 +1836,7 @@ export const layerWsRpc = (
       const readThreadSandboxChanges = Effect.fn("ws.readThreadSandboxChanges")(function* (
         threadId: ThreadId,
       ) {
-        const sandbox = yield* threadSandbox(threadId);
+        const sandbox = yield* polledThreadSandbox(threadId);
         if (sandbox === undefined) {
           return {
             sandboxed: false,
