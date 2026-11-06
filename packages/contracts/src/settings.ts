@@ -1319,6 +1319,10 @@ export const ServerSettings = Schema.Struct({
   ghqCloneLayout: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /** Zero keeps sandboxes running until the user stops them. */
   openShellIdleStopMinutes: Schema.Int.pipe(Schema.withDecodingDefault(Effect.succeed(30))),
+  /** Tells the agent to carry on once the user approves its access request. */
+  openShellContinueAfterAllow: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
   openShellImagePackages: Schema.String.pipe(
     Schema.withDecodingDefault(Effect.succeed("python3 python3-pip nodejs npm")),
   ),
@@ -1684,6 +1688,7 @@ export const ServerSettingsPatch = Schema.Struct({
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   ghqCloneLayout: Schema.optionalKey(Schema.Boolean),
   openShellIdleStopMinutes: Schema.optionalKey(Schema.Int),
+  openShellContinueAfterAllow: Schema.optionalKey(Schema.Boolean),
   openShellImagePackages: Schema.optionalKey(Schema.String),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),

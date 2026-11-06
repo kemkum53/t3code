@@ -11,7 +11,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 
-import { useUpdatePrimarySettings } from "../../hooks/useSettings";
+import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
 import { orchestrationEnvironment } from "../../state/orchestration";
 import { useEnvironmentQuery } from "../../state/query";
@@ -19,6 +19,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 
@@ -138,6 +139,31 @@ function IdleStopRow(props: { readonly minutes: number; readonly onChanged: () =
             ))}
           </SelectPopup>
         </Select>
+      }
+    />
+  );
+}
+
+function ContinueAfterAllowRow() {
+  const enabled = usePrimarySettings((settings) => settings.openShellContinueAfterAllow);
+  const updateSettings = useUpdatePrimarySettings();
+  return (
+    <SettingsRow
+      title="Continue after Allow"
+      control={
+        <Switch
+          aria-label="Continue after Allow"
+          checked={enabled}
+          onCheckedChange={(checked) => {
+            updateSettings({ openShellContinueAfterAllow: Boolean(checked) });
+            toastManager.add({
+              type: "success",
+              title: checked
+                ? "Claude continues after you allow access"
+                : "Claude waits for your message after you allow access",
+            });
+          }}
+        />
       }
     />
   );
@@ -608,6 +634,7 @@ function OpenShellOverviewContent(props: { readonly environmentId: EnvironmentId
       ) : null}
       <SettingsSection title="Sandboxes">
         <IdleStopRow minutes={overview.idleStopMinutes} onChanged={query.refresh} />
+        <ContinueAfterAllowRow />
         {overview.sandboxes.length === 0 ? (
           <SettingsRow title="No sandboxes" />
         ) : (

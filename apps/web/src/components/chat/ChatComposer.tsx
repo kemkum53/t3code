@@ -120,6 +120,7 @@ import type { ThreadSyncPhase } from "../../threadSync";
 import { ComposerBanner } from "./ComposerBanner";
 import { ComposerSurface } from "./ComposerSurface";
 import { useSandboxChangesBanner, useSandboxStarting } from "./useSandboxChangesBanner";
+import { usePrimarySettings } from "~/hooks/useSettings";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./ComposerBannerStack";
 import {
   attachmentsToReleaseOnUploadCapabilityLoss,
@@ -602,6 +603,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   } = props;
   const sandboxStarting = useSandboxStarting(environmentId, activeThreadId) && phase !== "running";
   const canOperateThread = threadOperable && !sandboxStarting;
+  const continueAfterAllow = usePrimarySettings((settings) => settings.openShellContinueAfterAllow);
   const activeContextWindow = deriveLatestContextWindowSnapshot(
     contextWindowEntries,
     contextWindowLiveUsage,
@@ -2366,10 +2368,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       getModelDisabledReason={getModelDisabledReason}
     />
   );
+  // Text the user is writing wins, and a running turn retries on its own.
+  const continueAfterAccess = (target: string) => {
+    if (!continueAfterAllow || phase === "running" || promptRef.current.trim() !== "") return;
+    const message = `Access to ${target} is approved. Continue where you stopped.`;
+    promptRef.current = message;
+    setPrompt(message);
+    onSend();
+  };
   const sandboxChangesBanner = useSandboxChangesBanner({
     environmentId,
     threadId: activeThreadId,
     phase,
+    onAccessGranted: continueAfterAccess,
   });
   // An open question owns the space above the composer. Only a machine problem,
   // which is why an answer could not go through, stays beside it.

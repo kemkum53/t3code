@@ -165,8 +165,9 @@ export function useSandboxChangesBanner(input: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId | null;
   readonly phase: string;
+  readonly onAccessGranted: (target: string) => void;
 }): ComposerBannerStackItem | null {
-  const { environmentId, threadId, phase } = input;
+  const { environmentId, threadId, phase, onAccessGranted } = input;
   const query = useEnvironmentQuery(
     threadId === null
       ? null
@@ -244,6 +245,7 @@ export function useSandboxChangesBanner(input: {
         : `Denied read access to ${fileRequest.path}`,
     });
     refreshRequests();
+    if (approved) onAccessGranted(fileRequest.path);
   };
 
   const resolveRequest = async (approved: boolean) => {
@@ -282,6 +284,7 @@ export function useSandboxChangesBanner(input: {
         : `Denied ${request.host}:${request.port}`,
     });
     refreshRequests();
+    if (approved) onAccessGranted(`${request.host}:${request.port}`);
   };
 
   const summary = [
