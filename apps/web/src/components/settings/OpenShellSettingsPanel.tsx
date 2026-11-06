@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, OpenShellOverview, OpenShellSandboxSummary } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  OpenShellOverview,
+  OpenShellSandboxSummary,
+  OpenShellTemplate,
+} from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -27,6 +32,8 @@ const SETUP_STEP_LABELS: Readonly<Record<string, string>> = {
   image: "Building the sandbox image",
   done: "Finishing",
 };
+
+type AtomCommandResult = Parameters<typeof isAtomCommandInterrupted>[0];
 
 const reportFailure = (title: string, result: unknown) => {
   const error = squashAtomCommandFailure(result as never);
@@ -142,9 +149,22 @@ interface SetupProps {
   readonly onChanged: () => void;
 }
 
-function useSetupCommand(props: SetupProps, messages: { success: string; failure: string }) {
-  const { environmentId, overview, onChanged } = props;
-  const setup = useAtomCommand(orchestrationEnvironment.setupOpenShell);
+const TEMPLATE_PRESETS = [
+  { name: "Python", packages: "python3 python3-pip python3-venv" },
+  { name: "Node", packages: "nodejs npm" },
+  { name: "C++", packages: "build-essential cmake gdb" },
+];
+
+const NETWORK_OPTIONS = [
+  { value: "developer", label: "GitHub, npm and PyPI" },
+  { value: "claude", label: "Claude only" },
+] as const;
+
+function useBuildCommand(
+  props: SetupProps,
+  messages: { readonly success: string; readonly failure: string },
+) {
+  const { overview, onChanged } = props;
   const [password, setPassword] = useState("");
   const [started, setStarted] = useState(false);
   const running = started || overview.setupStep !== null;
@@ -156,29 +176,51 @@ function useSetupCommand(props: SetupProps, messages: { success: string; failure
     return () => clearInterval(timer);
   }, [running, onChanged]);
 
-  const submit = async (imagePackages: string | null) => {
+  const run = async (command: (sudoPassword: string) => Promise<AtomCommandResult>) => {
     setStarted(true);
-    const result = await setup({
-      environmentId,
-      input: { sudoPassword: password, imagePackages },
-    });
+    const result = await command(password);
     setStarted(false);
     setPassword("");
     onChanged();
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) reportFailure(messages.failure, result);
-      return;
+      return false;
     }
     toastManager.add({ type: "success", title: messages.success });
+    return true;
   };
 
   const missingPassword = overview.sudoNeedsPassword && password === "";
-  return { running, password, setPassword, submit, missingPassword };
+  const stepLabel = running
+    ? (SETUP_STEP_LABELS[overview.setupStep ?? "check"] ?? overview.setupStep ?? undefined)
+    : undefined;
+  return { running, password, setPassword, run, missingPassword, stepLabel };
+}
+
+function PasswordInput(props: {
+  readonly visible: boolean;
+  readonly disabled: boolean;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+}) {
+  if (!props.visible) return null;
+  return (
+    <Input
+      aria-label="Linux password"
+      autoComplete="off"
+      disabled={props.disabled}
+      placeholder="Linux password"
+      type="password"
+      value={props.value}
+      onChange={(event) => props.onChange(event.target.value)}
+    />
+  );
 }
 
 function SetupRow(props: SetupProps) {
-  const { overview } = props;
-  const { running, password, setPassword, submit, missingPassword } = useSetupCommand(props, {
+  const { environmentId, overview } = props;
+  const setup = useAtomCommand(orchestrationEnvironment.setupOpenShell);
+  const build = useBuildCommand(props, {
     success: "OpenShell installed and sandbox templates added",
     failure: "OpenShell was not set up",
   });
@@ -186,32 +228,23 @@ function SetupRow(props: SetupProps) {
     <SettingsRow
       title="Set up this machine"
       description="Installs OpenShell and builds the sandbox image. Uses about 1 GB of disk."
-      status={
-        running
-          ? (SETUP_STEP_LABELS[overview.setupStep ?? "check"] ?? overview.setupStep)
-          : undefined
-      }
+      status={build.stepLabel}
       control={
         <form
           className="flex items-center gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            void submit(null);
+            void build.run((sudoPassword) => setup({ environmentId, input: { sudoPassword } }));
           }}
         >
-          {overview.sudoNeedsPassword ? (
-            <Input
-              aria-label="Linux password"
-              autoComplete="off"
-              disabled={running}
-              placeholder="Linux password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          ) : null}
-          <Button type="submit" size="sm" disabled={running || missingPassword}>
-            {running ? "Installing" : "Install"}
+          <PasswordInput
+            visible={overview.sudoNeedsPassword}
+            disabled={build.running}
+            value={build.password}
+            onChange={build.setPassword}
+          />
+          <Button type="submit" size="sm" disabled={build.running || build.missingPassword}>
+            {build.running ? "Installing" : "Install"}
           </Button>
         </form>
       }
@@ -219,46 +252,206 @@ function SetupRow(props: SetupProps) {
   );
 }
 
-function ImagePackagesRow(props: SetupProps) {
-  const { overview } = props;
-  const [packages, setPackages] = useState(overview.imagePackages);
-  const { running, password, setPassword, submit, missingPassword } = useSetupCommand(props, {
-    success: "Sandbox image rebuilt, new chats get these packages",
-    failure: "Sandbox image was not rebuilt",
+function TemplateRow(props: SetupProps & { readonly template: OpenShellTemplate }) {
+  const { environmentId, overview, template, onChanged } = props;
+  const save = useAtomCommand(orchestrationEnvironment.saveOpenShellTemplate);
+  const remove = useAtomCommand(orchestrationEnvironment.deleteOpenShellTemplate);
+  const [packages, setPackages] = useState(template.packages);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const build = useBuildCommand(props, {
+    success: `${template.name} rebuilt, open chats can update from Guard`,
+    failure: `${template.name} was not rebuilt`,
   });
+  const onDelete = async () => {
+    const result = await remove({ environmentId, input: { id: template.id } });
+    setConfirmingDelete(false);
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        reportFailure(`${template.name} was not deleted`, result);
+      }
+      return;
+    }
+    toastManager.add({ type: "success", title: `Template ${template.name} deleted` });
+    onChanged();
+  };
+  const network = NETWORK_OPTIONS.find(({ value }) => value === template.network)?.label;
   return (
     <SettingsRow
-      title="Packages in new sandboxes"
-      description="Space separated apt packages. Open chats keep their own image."
-      status={running ? (SETUP_STEP_LABELS[overview.setupStep ?? "check"] ?? "Working") : undefined}
+      title={template.name}
+      description={network}
+      status={build.stepLabel}
       control={
         <form
           className="flex items-center gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            void submit(packages.trim());
+            void build.run((sudoPassword) =>
+              save({
+                environmentId,
+                input: {
+                  id: template.id,
+                  name: template.name,
+                  packages: packages.trim(),
+                  network: template.network,
+                  sudoPassword,
+                },
+              }),
+            );
           }}
         >
           <Input
-            aria-label="Image packages"
+            aria-label={`Packages in ${template.name}`}
             autoComplete="off"
-            disabled={running}
+            disabled={build.running}
             value={packages}
             onChange={(event) => setPackages(event.target.value)}
           />
-          {overview.sudoNeedsPassword ? (
-            <Input
-              aria-label="Linux password"
-              autoComplete="off"
-              disabled={running}
-              placeholder="Linux password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          ) : null}
-          <Button type="submit" size="sm" disabled={running || missingPassword}>
-            {running ? "Rebuilding" : "Rebuild"}
+          <PasswordInput
+            visible={overview.sudoNeedsPassword}
+            disabled={build.running}
+            value={build.password}
+            onChange={build.setPassword}
+          />
+          <Button
+            type="submit"
+            size="xs"
+            variant="ghost"
+            disabled={build.running || build.missingPassword}
+          >
+            {build.running ? "Building" : "Rebuild"}
+          </Button>
+          {confirmingDelete ? (
+            <>
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                onClick={() => setConfirmingDelete(false)}
+              >
+                Keep
+              </Button>
+              <Button type="button" size="xs" variant="destructive" onClick={() => void onDelete()}>
+                Delete template
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost"
+              disabled={build.running}
+              onClick={() => setConfirmingDelete(true)}
+            >
+              Delete
+            </Button>
+          )}
+        </form>
+      }
+    />
+  );
+}
+
+function AddTemplateRow(props: SetupProps) {
+  const { environmentId, overview } = props;
+  const save = useAtomCommand(orchestrationEnvironment.saveOpenShellTemplate);
+  const [name, setName] = useState("");
+  const [packages, setPackages] = useState("");
+  const [network, setNetwork] = useState<OpenShellTemplate["network"]>("developer");
+  const build = useBuildCommand(props, {
+    success: `Template ${name.trim()} added, pick it in the model menu`,
+    failure: "Template was not added",
+  });
+  const networkLabel = NETWORK_OPTIONS.find(({ value }) => value === network)?.label;
+  return (
+    <SettingsRow
+      title="Add template"
+      description="Each template has its own image of 600 to 900 MB and takes about 2 minutes to build."
+      status={build.stepLabel}
+      control={
+        <form
+          className="flex flex-wrap items-center justify-end gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void build
+              .run((sudoPassword) =>
+                save({
+                  environmentId,
+                  input: {
+                    id: null,
+                    name: name.trim(),
+                    packages: packages.trim(),
+                    network,
+                    sudoPassword,
+                  },
+                }),
+              )
+              .then((saved) => {
+                if (!saved) return;
+                setName("");
+                setPackages("");
+              });
+          }}
+        >
+          {TEMPLATE_PRESETS.map((preset) => (
+            <Button
+              key={preset.name}
+              type="button"
+              size="xs"
+              variant="ghost"
+              disabled={build.running}
+              onClick={() => {
+                setName(preset.name);
+                setPackages(preset.packages);
+              }}
+            >
+              {preset.name}
+            </Button>
+          ))}
+          <Input
+            aria-label="Template name"
+            autoComplete="off"
+            disabled={build.running}
+            placeholder="Name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+          <Input
+            aria-label="Template packages"
+            autoComplete="off"
+            disabled={build.running}
+            placeholder="apt packages"
+            value={packages}
+            onChange={(event) => setPackages(event.target.value)}
+          />
+          <Select
+            value={network}
+            onValueChange={(next) => {
+              if (next === "developer" || next === "claude") setNetwork(next);
+            }}
+          >
+            <SelectTrigger aria-label="Template network" size="sm">
+              <SelectValue>{networkLabel}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup align="end" alignItemWithTrigger={false}>
+              {NETWORK_OPTIONS.map(({ value, label }) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          <PasswordInput
+            visible={overview.sudoNeedsPassword}
+            disabled={build.running}
+            value={build.password}
+            onChange={build.setPassword}
+          />
+          <Button
+            type="submit"
+            size="sm"
+            disabled={build.running || build.missingPassword || name.trim() === ""}
+          >
+            {build.running ? "Building" : "Add"}
           </Button>
         </form>
       }
@@ -389,15 +582,26 @@ function OpenShellOverviewContent(props: { readonly environmentId: EnvironmentId
           onSaved={query.refresh}
         />
       </SettingsSection>
-      <SettingsSection title="Sandboxes">
-        <IdleStopRow minutes={overview.idleStopMinutes} onChanged={query.refresh} />
-        {installed ? (
-          <ImagePackagesRow
+      {installed ? (
+        <SettingsSection title="Templates">
+          {overview.templates.map((template) => (
+            <TemplateRow
+              key={`${template.id}:${template.packages}`}
+              environmentId={environmentId}
+              overview={overview}
+              template={template}
+              onChanged={query.refresh}
+            />
+          ))}
+          <AddTemplateRow
             environmentId={environmentId}
             overview={overview}
             onChanged={query.refresh}
           />
-        ) : null}
+        </SettingsSection>
+      ) : null}
+      <SettingsSection title="Sandboxes">
+        <IdleStopRow minutes={overview.idleStopMinutes} onChanged={query.refresh} />
         {overview.sandboxes.length === 0 ? (
           <SettingsRow title="No sandboxes" />
         ) : (

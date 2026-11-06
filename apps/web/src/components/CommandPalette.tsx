@@ -121,7 +121,7 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
-import { firstSandboxModelSelection } from "../lib/openShellThreads";
+import { sandboxTemplateChoices } from "../lib/openShellThreads";
 import { useStartTriage } from "../hooks/useStartTriage";
 import { pickTriageEnvironment } from "../lib/triageTarget";
 import { useNewProject } from "../hooks/useNewProject";
@@ -1287,17 +1287,16 @@ function OpenCommandPaletteDialog(props: {
       shortcutCommand: "chat.newWithoutProject",
       run: () => startScratchThread(scratchTargetEnvironmentId),
     });
-    const sandboxModel = firstSandboxModelSelection(
+    for (const template of sandboxTemplateChoices(
       providersByEnvironment.get(scratchTargetEnvironmentId) ?? [],
-    );
-    if (sandboxModel !== null) {
+    )) {
       actionItems.push({
         kind: "action",
-        value: "action:new-sandbox-thread",
-        searchTerms: ["new thread", "sandbox", "openshell", "isolated", "no project", "chat"],
-        title: "New sandbox thread without a project",
+        value: `action:new-sandbox-thread:${template.modelSelection.instanceId}`,
+        searchTerms: ["new thread", "sandbox", "openshell", "isolated", template.name],
+        title: `New thread without a project in ${template.name}`,
         icon: <BoxIcon className={ITEM_ICON_CLASS} />,
-        run: () => startScratchThread(scratchTargetEnvironmentId, sandboxModel),
+        run: () => startScratchThread(scratchTargetEnvironmentId, template.modelSelection),
       });
     }
   }

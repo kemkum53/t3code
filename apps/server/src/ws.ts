@@ -2,7 +2,8 @@ import {
   OpenShellSandboxChangesError,
   OrchestrationDispatchCommandError,
   type OpenShellControlSandboxInput,
-  type OpenShellSetupInput,
+  type OpenShellDeleteTemplateInput,
+  type OpenShellSaveTemplateInput,
   type OpenShellUpdateGuardInput,
   type ProjectListEntriesInput,
   type ProjectReadFileInput,
@@ -302,9 +303,16 @@ import {
 import {
   DEFAULT_IMAGE_PATH,
   firstClaudeBinaryPath,
+  isTemplateImage,
+  listTemplates,
+  newTemplate,
   runSetup,
   setupFailureMessage,
   setupTemplates,
+  templateId,
+  templateImage,
+  templateImagePath,
+  withTemplateImage,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellSetup.ts";
 import {
   applySandboxChanges,
@@ -312,6 +320,7 @@ import {
   readSandboxChanges,
   readSandboxFile,
   resolveHostDistro,
+  runInLinux,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellWorkspace.ts";
 import {
   firstProfile,
@@ -1680,7 +1689,7 @@ export const layerWsRpc = (
             firstProfile(settings.providerInstances),
             {
               idleStopMinutes: settings.openShellIdleStopMinutes,
-              imagePackages: settings.openShellImagePackages,
+              templates: listTemplates(settings.providerInstances, settings.openShellImagePackages),
             },
             platform,
           ),
@@ -1699,9 +1708,7 @@ export const layerWsRpc = (
         managedFolders.scratchRoot.pipe(
           Effect.map((root) => !Option.exists(root, (folder) => isInsideFolder(hostCwd, folder))),
         );
-      const runOpenShellSetup = Effect.fn("ws.runOpenShellSetup")(function* (
-        input: OpenShellSetupInput,
-      ) {
+      const runOpenShellSetup = Effect.fn("ws.runOpenShellSetup")(function* (sudoPassword: string) {
         const settings = yield* serverSettings.getSettings;
         const platform = yield* HostProcess.Platform;
         const profile = firstProfile(settings.providerInstances);
@@ -1710,11 +1717,11 @@ export const layerWsRpc = (
             const resolved = await resolveHostDistro(profile?.wslDistro, platform);
             await runSetup(
               resolved,
-              input.sudoPassword,
+              sudoPassword,
               {
                 path: profile?.image ?? DEFAULT_IMAGE_PATH,
-                packages: input.imagePackages ?? settings.openShellImagePackages,
-                rebuild: input.imagePackages !== null,
+                packages: settings.openShellImagePackages,
+                rebuild: false,
               },
               platform,
             );
@@ -1723,9 +1730,6 @@ export const layerWsRpc = (
           catch: (cause) =>
             new OpenShellSandboxChangesError({ message: setupFailureMessage(cause), cause }),
         });
-        if (input.imagePackages !== null) {
-          yield* serverSettings.updateSettings({ openShellImagePackages: input.imagePackages });
-        }
         if (profile !== undefined) return;
         const binaryPath = firstClaudeBinaryPath(settings.providerInstances);
         for (const [instanceId, instance] of setupTemplates(distro, binaryPath)) {
@@ -1735,6 +1739,78 @@ export const layerWsRpc = (
             instance,
           });
         }
+      });
+      const saveTemplate = Effect.fn("ws.saveOpenShellTemplate")(function* (
+        input: OpenShellSaveTemplateInput,
+      ) {
+        const settings = yield* serverSettings.getSettings;
+        const platform = yield* HostProcess.Platform;
+        const instances = settings.providerInstances;
+        const existing =
+          input.id === null ? undefined : instances[ProviderInstanceId.make(input.id)];
+        if (input.id !== null && existing === undefined) {
+          return yield* new OpenShellSandboxChangesError({
+            message: "That template no longer exists",
+          });
+        }
+        const id = input.id ?? templateId(input.name, Object.keys(instances));
+        const distro = yield* openShellErrorDetail(async () => {
+          const resolved = await resolveHostDistro(firstProfile(instances)?.wslDistro, platform);
+          await runSetup(
+            resolved,
+            input.sudoPassword,
+            { path: templateImagePath(id), packages: input.packages, rebuild: true },
+            platform,
+          );
+          return resolved;
+        });
+        yield* serverSettings.updateProviderInstance({
+          operation: "upsert",
+          instanceId: ProviderInstanceId.make(id),
+          instance:
+            existing === undefined
+              ? newTemplate({
+                  id,
+                  name: input.name,
+                  packages: input.packages,
+                  network: input.network,
+                  distro,
+                  binaryPath: firstClaudeBinaryPath(instances),
+                })
+              : withTemplateImage(existing, id, input.packages),
+        });
+      });
+      const deleteTemplate = Effect.fn("ws.deleteOpenShellTemplate")(function* (
+        input: OpenShellDeleteTemplateInput,
+      ) {
+        const settings = yield* serverSettings.getSettings;
+        const platform = yield* HostProcess.Platform;
+        const instanceId = ProviderInstanceId.make(input.id);
+        const instance = settings.providerInstances[instanceId];
+        if (instance === undefined) return;
+        const { threads } = yield* threadManagement.getShellSnapshot();
+        const users = threads.filter(({ providerInstanceId }) => providerInstanceId === instanceId);
+        if (users.length > 0) {
+          return yield* new OpenShellSandboxChangesError({
+            message: `Delete its ${users.length === 1 ? "chat" : `${users.length} chats`} first`,
+          });
+        }
+        const templates = listTemplates(settings.providerInstances, "");
+        if (templates.length === 1) {
+          return yield* new OpenShellSandboxChangesError({
+            message: "Keep at least one sandbox template",
+          });
+        }
+        yield* serverSettings.updateProviderInstance({ operation: "remove", instanceId });
+        const image = templateImage(instance);
+        if (image === undefined || !isTemplateImage(image)) return;
+        yield* openShellErrorDetail(() =>
+          runInLinux(
+            { wslDistro: firstProfile(settings.providerInstances)?.wslDistro },
+            `rm -f "${image}"`,
+            platform,
+          ),
+        );
       });
       const controlNamedSandbox = Effect.fn("ws.controlNamedSandbox")(function* (
         input: OpenShellControlSandboxInput,
@@ -2469,7 +2545,11 @@ export const layerWsRpc = (
             asOpenShellError("Failed to read access requests"),
           ),
         [ORCHESTRATION_V2_WS_METHODS.setupOpenShell]: (input) =>
-          runOpenShellSetup(input).pipe(asOpenShellError("OpenShell setup failed")),
+          runOpenShellSetup(input.sudoPassword).pipe(asOpenShellError("OpenShell setup failed")),
+        [ORCHESTRATION_V2_WS_METHODS.saveOpenShellTemplate]: (input) =>
+          saveTemplate(input).pipe(asOpenShellError("Sandbox template was not saved")),
+        [ORCHESTRATION_V2_WS_METHODS.deleteOpenShellTemplate]: (input) =>
+          deleteTemplate(input).pipe(asOpenShellError("Sandbox template was not deleted")),
         [ORCHESTRATION_V2_WS_METHODS.controlSandbox]: (input) =>
           controlNamedSandbox(input).pipe(asOpenShellError("Failed to change sandbox")),
         [ORCHESTRATION_V2_WS_METHODS.searchThread]: (input) =>

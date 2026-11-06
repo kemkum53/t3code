@@ -460,7 +460,7 @@ export const listSandboxes = async (profile: OpenShellProfile, platform: NodeJS.
 
 export const readOverview = async (
   profile: OpenShellProfile | undefined,
-  preferences: Pick<OpenShellOverview, "idleStopMinutes" | "imagePackages">,
+  preferences: Pick<OpenShellOverview, "idleStopMinutes" | "templates">,
   platform: NodeJS.Platform,
 ): Promise<OpenShellOverview> => {
   const host = { wslDistro: await resolveHostDistro(profile?.wslDistro, platform) };

@@ -1,4 +1,8 @@
-import { ProviderDriverKind, type ProviderInstanceConfig } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  type OpenShellTemplate,
+  type ProviderInstanceConfig,
+} from "@t3tools/contracts";
 
 import { runInLinux } from "./ClaudeOpenShellWorkspace.ts";
 
@@ -11,6 +15,13 @@ const PACKAGE_PATTERN = /^[a-z0-9][a-z0-9+.-]*$/;
 
 export const DEFAULT_IMAGE_PATH = `${SETUP_ROOT}/rootfs.tar`;
 export const SETUP_STEP_FILE = `${SETUP_CACHE}/setup-step`;
+
+const TEMPLATE_IMAGE_FOLDER = `${SETUP_ROOT}/images`;
+const TEMPLATE_ID_PREFIX = "openshell_";
+const TEMPLATE_NAME_PREFIX = "OpenShell";
+const IMAGE_ENV = "T3_OPENSHELL_IMAGE";
+const POLICY_ENV = "T3_OPENSHELL_POLICY";
+const PACKAGES_ENV = "T3_OPENSHELL_PACKAGES";
 
 const STRICT_POLICY_PATH = `${SETUP_ROOT}/policy.yaml`;
 const DEV_POLICY_PATH = `${SETUP_ROOT}/policy-dev.yaml`;
@@ -150,7 +161,7 @@ CONFIG=$HOME/.config/openshell
 TLS=$HOME/.local/state/openshell/tls
 ENDPOINT=https://127.0.0.1:17670
 IMAGE=${input.image}
-mkdir -p "$ROOT" "$CACHE" "$CONFIG"
+mkdir -p "$ROOT" "$CACHE" "$CONFIG" "$(dirname "$IMAGE")"
 IFS= read -r SUDO_PASSWORD || SUDO_PASSWORD=
 step() { printf '%s\\n' "$1" >"${SETUP_STEP_FILE}"; }
 die() { printf '%s\\n' "$1" >&2; exit 1; }
@@ -248,13 +259,17 @@ const templateInstance = (
   policyPath: string,
   distro: string | undefined,
   binaryPath: string | undefined,
+  image: { readonly path: string; readonly packages?: string } = { path: DEFAULT_IMAGE_PATH },
 ): ProviderInstanceConfig => ({
   driver: ProviderDriverKind.make("claudeAgent"),
   displayName,
   enabled: true,
   environment: [
-    { name: "T3_OPENSHELL_IMAGE", value: DEFAULT_IMAGE_PATH, sensitive: false },
-    { name: "T3_OPENSHELL_POLICY", value: policyPath, sensitive: false },
+    { name: IMAGE_ENV, value: image.path, sensitive: false },
+    { name: POLICY_ENV, value: policyPath, sensitive: false },
+    ...(image.packages === undefined
+      ? []
+      : [{ name: PACKAGES_ENV, value: image.packages, sensitive: false }]),
     { name: "T3_OPENSHELL_PROVIDER", value: CREDENTIAL_PROVIDER, sensitive: false },
     ...(distro === undefined
       ? []
@@ -268,6 +283,93 @@ export const setupTemplates = (distro: string | undefined, binaryPath: string | 
     ["openshell", templateInstance("OpenShell", STRICT_POLICY_PATH, distro, binaryPath)],
     ["openshell_dev", templateInstance("OpenShell Dev", DEV_POLICY_PATH, distro, binaryPath)],
   ] as const;
+
+const environmentValue = (instance: ProviderInstanceConfig, name: string) => {
+  const value = instance.environment?.find((entry) => entry.name === name)?.value;
+  return typeof value === "string" ? value : undefined;
+};
+
+const policyPathFor = (network: OpenShellTemplate["network"]) =>
+  network === "developer" ? DEV_POLICY_PATH : STRICT_POLICY_PATH;
+
+export const templateImagePath = (id: string) => `${TEMPLATE_IMAGE_FOLDER}/${id}.tar`;
+
+export const isTemplateImage = (path: string) => path.startsWith(`${TEMPLATE_IMAGE_FOLDER}/`);
+
+export const templateDisplayName = (name: string) => {
+  const trimmed = name.trim();
+  return trimmed.toLowerCase().startsWith(TEMPLATE_NAME_PREFIX.toLowerCase())
+    ? trimmed
+    : `${TEMPLATE_NAME_PREFIX} ${trimmed}`;
+};
+
+/** Ids stay plain slugs, so a name in any alphabet still gets a usable one. */
+export const templateId = (name: string, taken: ReadonlyArray<string>): string => {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/^openshell\b/, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const base = `${TEMPLATE_ID_PREFIX}${slug === "" ? "custom" : slug}`;
+  if (!taken.includes(base)) return base;
+  let suffix = 2;
+  while (taken.includes(`${base}_${suffix}`)) suffix += 1;
+  return `${base}_${suffix}`;
+};
+
+export const newTemplate = (input: {
+  readonly id: string;
+  readonly name: string;
+  readonly packages: string;
+  readonly network: OpenShellTemplate["network"];
+  readonly distro: string | undefined;
+  readonly binaryPath: string | undefined;
+}) =>
+  templateInstance(
+    templateDisplayName(input.name),
+    policyPathFor(input.network),
+    input.distro,
+    input.binaryPath,
+    { path: templateImagePath(input.id), packages: input.packages },
+  );
+
+export const withTemplateImage = (
+  instance: ProviderInstanceConfig,
+  id: string,
+  packages: string,
+): ProviderInstanceConfig => ({
+  ...instance,
+  environment: [
+    ...(instance.environment ?? []).filter(
+      ({ name }) => name !== IMAGE_ENV && name !== PACKAGES_ENV,
+    ),
+    { name: IMAGE_ENV, value: templateImagePath(id), sensitive: false },
+    { name: PACKAGES_ENV, value: packages, sensitive: false },
+  ],
+});
+
+export const listTemplates = (
+  instances: Readonly<Record<string, ProviderInstanceConfig>>,
+  defaultPackages: string,
+): ReadonlyArray<OpenShellTemplate> =>
+  Object.entries(instances).flatMap(([id, instance]) =>
+    environmentValue(instance, IMAGE_ENV) === undefined
+      ? []
+      : [
+          {
+            id,
+            name: instance.displayName ?? id,
+            packages: environmentValue(instance, PACKAGES_ENV) ?? defaultPackages,
+            network: environmentValue(instance, POLICY_ENV)?.includes("policy-dev")
+              ? ("developer" as const)
+              : ("claude" as const),
+          },
+        ],
+  );
+
+export const templateImage = (instance: ProviderInstanceConfig) =>
+  environmentValue(instance, IMAGE_ENV);
 
 let activeSetup: Promise<Buffer> | undefined;
 

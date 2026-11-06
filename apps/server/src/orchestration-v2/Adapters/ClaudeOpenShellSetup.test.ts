@@ -3,9 +3,16 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   firstClaudeBinaryPath,
   assertPackages,
+  isTemplateImage,
+  listTemplates,
+  newTemplate,
   setupFailureMessage,
   setupScript,
   setupTemplates,
+  templateDisplayName,
+  templateId,
+  templateImagePath,
+  withTemplateImage,
 } from "./ClaudeOpenShellSetup.ts";
 import { parseDistroList } from "./ClaudeOpenShellWorkspace.ts";
 
@@ -30,6 +37,65 @@ describe("setupScript", () => {
 
   it("verifies both downloads", () => {
     assert.strictEqual(SETUP_SCRIPT.split("sha256sum -c --quiet").length - 1, 2);
+  });
+});
+
+describe("templateId", () => {
+  it("makes a slug and avoids taken ids", () => {
+    assert.strictEqual(templateId("OpenShell Python", []), "openshell_python");
+    assert.strictEqual(
+      templateId("Python", ["openshell_python", "openshell_python_2"]),
+      "openshell_python_3",
+    );
+  });
+
+  it("survives a name with no latin letters", () => {
+    assert.strictEqual(templateId("şğü", []), "openshell_custom");
+  });
+});
+
+describe("templateDisplayName", () => {
+  it("adds the prefix once", () => {
+    assert.strictEqual(templateDisplayName("Python"), "OpenShell Python");
+    assert.strictEqual(templateDisplayName("OpenShell Node"), "OpenShell Node");
+  });
+});
+
+describe("listTemplates", () => {
+  const python = newTemplate({
+    id: "openshell_python",
+    name: "Python",
+    packages: "python3",
+    network: "developer",
+    distro: undefined,
+    binaryPath: undefined,
+  });
+
+  it("reads back what was saved and skips other providers", () => {
+    assert.deepStrictEqual(
+      listTemplates({ openshell_python: python, codex: { driver: "codex" } as never }, "fallback"),
+      [
+        {
+          id: "openshell_python",
+          name: "OpenShell Python",
+          packages: "python3",
+          network: "developer",
+        },
+      ],
+    );
+  });
+
+  it("falls back for a template made before packages were stored", () => {
+    const [[, instance]] = setupTemplates(undefined, undefined);
+    assert.strictEqual(listTemplates({ a: instance }, "fallback")[0]?.packages, "fallback");
+  });
+
+  it("points a rebuilt template at its own image", () => {
+    const [[, shared]] = setupTemplates(undefined, undefined);
+    const rebuilt = withTemplateImage(shared, "openshell", "nodejs");
+    const image = rebuilt.environment?.find(({ name }) => name === "T3_OPENSHELL_IMAGE");
+    assert.strictEqual(image?.value, templateImagePath("openshell"));
+    assert.isTrue(isTemplateImage(templateImagePath("openshell")));
   });
 });
 

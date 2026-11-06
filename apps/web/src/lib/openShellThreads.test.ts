@@ -1,7 +1,7 @@
 import { OPENSHELL_SANDBOX_AUTH_TYPE, type ServerProvider } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { firstSandboxModelSelection, sandboxStateOfPhase } from "./openShellThreads";
+import { sandboxStateOfPhase, sandboxTemplateChoices } from "./openShellThreads";
 
 const provider = (instanceId: string, authType: string, enabled = true) =>
   ({
@@ -11,19 +11,24 @@ const provider = (instanceId: string, authType: string, enabled = true) =>
     models: [{ slug: "small" }, { slug: "large", isDefault: true }],
   }) as unknown as ServerProvider;
 
-describe("firstSandboxModelSelection", () => {
-  it("picks the default model of the first enabled sandbox template", () => {
+describe("sandboxTemplateChoices", () => {
+  it("lists every enabled template with its default model", () => {
     expect(
-      firstSandboxModelSelection([
+      sandboxTemplateChoices([
         provider("claude", "subscription"),
         provider("off", OPENSHELL_SANDBOX_AUTH_TYPE, false),
         provider("openshell", OPENSHELL_SANDBOX_AUTH_TYPE),
       ]),
-    ).toEqual({ instanceId: "openshell", model: "large" });
+    ).toEqual([
+      {
+        name: "openshell",
+        modelSelection: { instanceId: "openshell", model: "large" },
+      },
+    ]);
   });
 
   it("returns nothing on a machine without a template", () => {
-    expect(firstSandboxModelSelection([provider("claude", "subscription")])).toBeNull();
+    expect(sandboxTemplateChoices([provider("claude", "subscription")])).toEqual([]);
   });
 });
 

@@ -130,10 +130,18 @@ export const OpenShellSandboxSummary = Schema.Struct({
 });
 export type OpenShellSandboxSummary = typeof OpenShellSandboxSummary.Type;
 
+export const OpenShellTemplate = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  packages: Schema.String,
+  network: Schema.Literals(["claude", "developer"]),
+});
+export type OpenShellTemplate = typeof OpenShellTemplate.Type;
+
 export const OpenShellOverview = Schema.Struct({
   configured: Schema.Boolean,
   idleStopMinutes: NonNegativeInt,
-  imagePackages: Schema.String,
+  templates: Schema.Array(OpenShellTemplate),
   linuxAvailable: Schema.Boolean,
   sudoNeedsPassword: Schema.Boolean,
   setupStep: Schema.NullOr(TrimmedNonEmptyString),
@@ -150,12 +158,21 @@ export type OpenShellOverview = typeof OpenShellOverview.Type;
 export const OpenShellSaveCredentialInput = Schema.Struct({ token: TrimmedNonEmptyString });
 export type OpenShellSaveCredentialInput = typeof OpenShellSaveCredentialInput.Type;
 
-export const OpenShellSetupInput = Schema.Struct({
-  sudoPassword: Schema.String,
-  /** Set to rebuild the image with these apt packages. */
-  imagePackages: Schema.NullOr(Schema.String),
-});
+export const OpenShellSetupInput = Schema.Struct({ sudoPassword: Schema.String });
 export type OpenShellSetupInput = typeof OpenShellSetupInput.Type;
+
+export const OpenShellSaveTemplateInput = Schema.Struct({
+  /** Null adds a template, an id rebuilds that one with new packages. */
+  id: Schema.NullOr(TrimmedNonEmptyString),
+  name: TrimmedNonEmptyString,
+  packages: Schema.String,
+  network: OpenShellTemplate.fields.network,
+  sudoPassword: Schema.String,
+});
+export type OpenShellSaveTemplateInput = typeof OpenShellSaveTemplateInput.Type;
+
+export const OpenShellDeleteTemplateInput = Schema.Struct({ id: TrimmedNonEmptyString });
+export type OpenShellDeleteTemplateInput = typeof OpenShellDeleteTemplateInput.Type;
 
 export const OpenShellControlSandboxInput = Schema.Struct({
   sandbox: TrimmedNonEmptyString,
