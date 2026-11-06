@@ -6,6 +6,7 @@ import {
   parseAccessRequests,
   parseDenials,
   parseFileDenials,
+  parseFileRequests,
   parseHostChecks,
   parseRules,
   parseSandboxList,
@@ -130,6 +131,38 @@ describe("parseFileDenials", () => {
       parseFileDenials(
         [item("ok"), item("touch: x: Permission denied", "2026-11-06T07:00:00Z")],
         now,
+      ),
+      [],
+    );
+  });
+});
+
+describe("parseFileRequests", () => {
+  const denial = (command: string, message: string) => ({ command, message });
+
+  it("offers a path outside the rules", () => {
+    assert.deepStrictEqual(
+      parseFileRequests(
+        "t3-a",
+        [
+          denial("ls -la /", "ls: cannot open directory '/': Permission denied"),
+          denial("cat /root/x", "cat: /root/x: Permission denied"),
+        ],
+        ["/usr", "/sandbox"],
+      ),
+      [
+        { path: "/", program: "ls" },
+        { path: "/root/x", program: "cat" },
+      ],
+    );
+  });
+
+  it("skips writes to a path that is already readable", () => {
+    assert.deepStrictEqual(
+      parseFileRequests(
+        "t3-a",
+        [denial("touch /etc/x", "touch: cannot touch '/etc/x': Permission denied")],
+        ["/etc"],
       ),
       [],
     );

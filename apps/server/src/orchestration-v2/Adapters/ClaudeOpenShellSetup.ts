@@ -7,6 +7,7 @@ const UBUNTU_BASE_VERSION = "24.04.5";
 const SETUP_ROOT = "$HOME/t3-openshell";
 const SETUP_CACHE = "$HOME/.cache/t3-openshell";
 const CREDENTIAL_PROVIDER = "claude-sub";
+const PACKAGE_PATTERN = /^[a-z0-9][a-z0-9+.-]*$/;
 
 export const DEFAULT_IMAGE_PATH = `${SETUP_ROOT}/rootfs.tar`;
 export const SETUP_STEP_FILE = `${SETUP_CACHE}/setup-step`;
@@ -91,10 +92,10 @@ binaries:
 `;
 
 /** Runs inside the chroot. The image is built here because Claude cannot be redistributed. */
-const PROVISION_SCRIPT = `set -eu
+const provisionScript = (packages: string) => `set -eu
 export DEBIAN_FRONTEND=noninteractive HOME=/root
 apt-get update -qq >/dev/null
-apt-get install -y -qq --no-install-recommends ca-certificates curl git openssh-client tar coreutils bash ripgrep iproute2 >/dev/null
+apt-get install -y -qq --no-install-recommends ca-certificates curl git openssh-client tar coreutils bash ripgrep iproute2 ${packages} >/dev/null
 rm -rf /var/lib/apt/lists/*
 groupadd -g 10001 sandbox
 useradd -m -d /sandbox -u 10001 -g 10001 -s /bin/bash sandbox
@@ -105,7 +106,7 @@ chmod 755 /usr/local/bin/claude
 rm -rf /root/.local /root/.claude /tmp/* /tmp/.[!.]*
 `;
 
-const BUILD_IMAGE_SCRIPT = `set -eu
+const buildImageScript = (packages: string) => `set -eu
 BASE=$1
 IMAGE=$2
 OWNER=$3
@@ -123,7 +124,7 @@ mknod -m 666 "$ROOTFS/dev/null" c 1 3
 mknod -m 666 "$ROOTFS/dev/urandom" c 1 9
 mount -t proc proc "$ROOTFS/proc"
 cat >"$ROOTFS/tmp/provision.sh" <<'PROVISION'
-${PROVISION_SCRIPT}PROVISION
+${provisionScript(packages)}PROVISION
 chroot "$ROOTFS" sh /tmp/provision.sh
 umount "$ROOTFS/proc"
 rm -f "$ROOTFS/dev/null" "$ROOTFS/dev/urandom"
@@ -137,14 +138,18 @@ mv "$IMAGE.tmp" "$IMAGE"
  * Safe to run again after a failure: every step skips what is already done.
  * The first line of stdin is the sudo password, so it never reaches a process list.
  */
-export const SETUP_SCRIPT = `set -eu
+export const setupScript = (input: {
+  readonly image: string;
+  readonly packages: string;
+  readonly rebuildImage: boolean;
+}) => `set -eu
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 ROOT=${SETUP_ROOT}
 CACHE=${SETUP_CACHE}
 CONFIG=$HOME/.config/openshell
 TLS=$HOME/.local/state/openshell/tls
 ENDPOINT=https://127.0.0.1:17670
-IMAGE=${DEFAULT_IMAGE_PATH}
+IMAGE=${input.image}
 mkdir -p "$ROOT" "$CACHE" "$CONFIG"
 IFS= read -r SUDO_PASSWORD || SUDO_PASSWORD=
 step() { printf '%s\\n' "$1" >"${SETUP_STEP_FILE}"; }
@@ -225,12 +230,12 @@ cat >${DEV_POLICY_PATH} <<'POLICY'
 ${DEV_POLICY}POLICY
 
 step image
-if [ ! -s "$IMAGE" ]; then
+if [ ! -s "$IMAGE" ] || [ "${input.rebuildImage ? 1 : 0}" = 1 ]; then
   BASE=$CACHE/ubuntu-base-$ARCH.tar.gz
   curl -fsSL -o "$BASE" "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-${UBUNTU_BASE_VERSION}-base-$ARCH.tar.gz"
   printf '%s  %s\\n' "$BASE_SHA" "$BASE" | sha256sum -c --quiet
   cat >"$CACHE/build-image.sh" <<'BUILD'
-${BUILD_IMAGE_SCRIPT}BUILD
+${buildImageScript(input.packages)}BUILD
   as_root sh "$CACHE/build-image.sh" "$BASE" "$IMAGE" "$(id -un)"
   rm -f "$BASE" "$CACHE/build-image.sh"
 fi
@@ -268,6 +273,14 @@ let activeSetup: Promise<Buffer> | undefined;
 
 export const isSetupRunning = (): boolean => activeSetup !== undefined;
 
+/** Package names land in a root shell, so nothing but plain apt names gets through. */
+export const assertPackages = (packages: string): string => {
+  const names = packages.split(/\s+/).filter(Boolean);
+  const invalid = names.find((name) => !PACKAGE_PATTERN.test(name));
+  if (invalid !== undefined) throw new Error(`Invalid package name: ${invalid}`);
+  return names.join(" ");
+};
+
 /** The script reports its own failure on stderr, which is the part worth showing. */
 export const setupFailureMessage = (cause: unknown): string => {
   const detail = cause instanceof Error ? cause.message.replace(/^[\s\S]*?exited \d+: /, "") : "";
@@ -285,10 +298,16 @@ export const firstClaudeBinaryPath = (
 export const runSetup = async (
   wslDistro: string | undefined,
   sudoPassword: string,
+  image: { readonly path: string; readonly packages: string; readonly rebuild: boolean },
   platform: NodeJS.Platform,
 ): Promise<void> => {
   if (activeSetup !== undefined) throw new Error("Setup is already running.");
-  activeSetup = runInLinux({ wslDistro }, SETUP_SCRIPT, platform, Buffer.from(`${sudoPassword}\n`));
+  const script = setupScript({
+    image: image.path,
+    packages: assertPackages(image.packages),
+    rebuildImage: image.rebuild,
+  });
+  activeSetup = runInLinux({ wslDistro }, script, platform, Buffer.from(`${sudoPassword}\n`));
   try {
     await activeSetup;
   } finally {

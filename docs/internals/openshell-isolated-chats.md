@@ -68,6 +68,20 @@ denial the agent never prints stays invisible.
 
 An idle box stops only after T3 has closed its session, because stopping it kills the agent.
 
+## Changing a running box, tested on 2026-11-06
+
+`policy set` accepts added filesystem paths, and they apply after stop and start. It refuses removed
+paths and `run_as_user` changes, so a box can gain read access but can never become root. System
+packages therefore go into the image. A rebuilt image reaches new boxes only.
+
+| Check                                | Result                         |
+| ------------------------------------ | ------------------------------ |
+| Rebuild with python3, pip, node, npm | 104 s, 875 MB                  |
+| Rebuild with python3 only            | 72 s, 624 MB                   |
+| First box from a new image           | 54 s                           |
+| Box made before the rebuild          | Keeps its old image            |
+| Allow a path, including restart      | 42 s, files in `/sandbox` kept |
+
 ## Distribution
 
 T3 Code has no plugin system and upstream does not take large features, so this ships as a fork with

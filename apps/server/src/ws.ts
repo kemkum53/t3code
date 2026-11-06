@@ -2,6 +2,7 @@ import {
   OpenShellSandboxChangesError,
   OrchestrationDispatchCommandError,
   type OpenShellControlSandboxInput,
+  type OpenShellSetupInput,
   type OpenShellUpdateGuardInput,
   type ProjectListEntriesInput,
   type ProjectReadFileInput,
@@ -286,8 +287,10 @@ import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import { requestUrl } from "./requestUrl.ts";
 import {
   allowEndpoint,
+  allowFilePath,
   controlSandbox,
   denyAccessRequest,
+  denyFilePath,
   parseFileDenials,
   readAccessRequests,
   readGuard,
@@ -296,6 +299,7 @@ import {
   saveCredential,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellGuard.ts";
 import {
+  DEFAULT_IMAGE_PATH,
   firstClaudeBinaryPath,
   runSetup,
   setupFailureMessage,
@@ -1603,12 +1607,12 @@ export const layerWsRpc = (
       });
       const readThreadRequests = Effect.fn("ws.readThreadRequests")(function* (threadId: ThreadId) {
         const sandbox = yield* threadSandbox(threadId);
-        if (sandbox === undefined) return { requests: [] };
+        if (sandbox === undefined) return { requests: [], fileRequests: [] };
         const platform = yield* HostProcess.Platform;
-        const requests = yield* openShellCall("Failed to read access requests", () =>
-          readAccessRequests(sandbox.target, platform),
-        ).pipe(Effect.orElseSucceed(() => []));
-        return { requests };
+        const fileDenials = yield* readFileDenials(threadId);
+        return yield* openShellCall("Failed to read access requests", () =>
+          readAccessRequests(sandbox.target, fileDenials, platform),
+        ).pipe(Effect.orElseSucceed(() => ({ requests: [], fileRequests: [] })));
       });
       const updateThreadGuard = Effect.fn("ws.updateThreadGuard")(function* (
         input: OpenShellUpdateGuardInput,
@@ -1624,6 +1628,10 @@ export const layerWsRpc = (
               return removeEndpoint(target, change, platform);
             case "deny":
               return denyAccessRequest(target, change, platform);
+            case "allowPath":
+              return allowFilePath(target, change.path, platform);
+            case "denyPath":
+              return Promise.resolve(denyFilePath(target, change.path));
             case "stop":
             case "start":
               return controlSandbox(target, change.type, platform);
@@ -1636,7 +1644,10 @@ export const layerWsRpc = (
         return yield* openShellCall("Failed to read OpenShell status", () =>
           readOverview(
             firstProfile(settings.providerInstances),
-            settings.openShellIdleStopMinutes,
+            {
+              idleStopMinutes: settings.openShellIdleStopMinutes,
+              imagePackages: settings.openShellImagePackages,
+            },
             platform,
           ),
         );
@@ -1654,19 +1665,33 @@ export const layerWsRpc = (
         managedFolders.scratchRoot.pipe(
           Effect.map((root) => !Option.exists(root, (folder) => isInsideFolder(hostCwd, folder))),
         );
-      const runOpenShellSetup = Effect.fn("ws.runOpenShellSetup")(function* (sudoPassword: string) {
+      const runOpenShellSetup = Effect.fn("ws.runOpenShellSetup")(function* (
+        input: OpenShellSetupInput,
+      ) {
         const settings = yield* serverSettings.getSettings;
         const platform = yield* HostProcess.Platform;
         const profile = firstProfile(settings.providerInstances);
         const distro = yield* Effect.tryPromise({
           try: async () => {
             const resolved = await resolveHostDistro(profile?.wslDistro, platform);
-            await runSetup(resolved, sudoPassword, platform);
+            await runSetup(
+              resolved,
+              input.sudoPassword,
+              {
+                path: profile?.image ?? DEFAULT_IMAGE_PATH,
+                packages: input.imagePackages ?? settings.openShellImagePackages,
+                rebuild: input.imagePackages !== null,
+              },
+              platform,
+            );
             return resolved;
           },
           catch: (cause) =>
             new OpenShellSandboxChangesError({ message: setupFailureMessage(cause), cause }),
         });
+        if (input.imagePackages !== null) {
+          yield* serverSettings.updateSettings({ openShellImagePackages: input.imagePackages });
+        }
         if (profile !== undefined) return;
         const binaryPath = firstClaudeBinaryPath(settings.providerInstances);
         for (const [instanceId, instance] of setupTemplates(distro, binaryPath)) {
@@ -2410,7 +2435,7 @@ export const layerWsRpc = (
             asOpenShellError("Failed to read access requests"),
           ),
         [ORCHESTRATION_V2_WS_METHODS.setupOpenShell]: (input) =>
-          runOpenShellSetup(input.sudoPassword).pipe(asOpenShellError("OpenShell setup failed")),
+          runOpenShellSetup(input).pipe(asOpenShellError("OpenShell setup failed")),
         [ORCHESTRATION_V2_WS_METHODS.controlSandbox]: (input) =>
           controlNamedSandbox(input).pipe(asOpenShellError("Failed to change sandbox")),
         [ORCHESTRATION_V2_WS_METHODS.searchThread]: (input) =>

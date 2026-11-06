@@ -105,7 +105,9 @@ You run inside an OpenShell sandbox. Your changes stay in this box, and the user
 
 Network access is denied by default. When a command fails because a host is unreachable, do not look for a workaround. Tell the user which host you need and why, then stop and wait. The blocked attempt already reached the user as an access request, and the rule is active as soon as they approve it.
 
-Filesystem limits cannot change while the box runs. If you need one changed, tell the user what you need and why.
+You have no root access, so apt cannot install anything here. Install tools under $HOME/.local after the user approves the hosts you need.
+
+When a path outside your limits is refused, the user sees a request to allow reading it. Approving restarts the box, so stop and let them answer. Write limits cannot be widened.
 `;
 
 /** Creates the thread's box on first use. Later turns find it running and move on. */
@@ -131,6 +133,25 @@ while [ "$i" -lt ${SANDBOX_READY_ATTEMPTS} ]; do
 done
 echo "sandbox ${target.sandbox} did not become ready" >&2
 exit 1`,
+    platform,
+  );
+};
+
+/** Filesystem rules load only when the supervisor starts, so a new one needs this. */
+export const restartSandbox = (target: OpenShellTarget, platform: NodeJS.Platform) => {
+  const name = quote(target.sandbox);
+  const waitFor = (phase: string) => `i=0
+until openshell sandbox list </dev/null | grep -q "^${target.sandbox} .*${phase}"; do
+  i=$((i + 1))
+  [ "$i" -lt ${SANDBOX_READY_ATTEMPTS} ] || { echo "sandbox ${target.sandbox} did not reach ${phase}" >&2; exit 1; }
+  sleep 2
+done`;
+  return runInLinux(
+    target,
+    `openshell sandbox stop ${name} </dev/null >/dev/null
+${waitFor("Stopped")}
+openshell sandbox start ${name} </dev/null >/dev/null
+${waitFor("Ready")}`,
     platform,
   );
 };

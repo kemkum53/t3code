@@ -2,13 +2,27 @@ import { assert, describe, it } from "@effect/vitest";
 
 import {
   firstClaudeBinaryPath,
+  assertPackages,
   setupFailureMessage,
+  setupScript,
   setupTemplates,
-  SETUP_SCRIPT,
 } from "./ClaudeOpenShellSetup.ts";
 import { parseDistroList } from "./ClaudeOpenShellWorkspace.ts";
 
-describe("SETUP_SCRIPT", () => {
+const SETUP_SCRIPT = setupScript({ image: "$HOME/a.tar", packages: "python3", rebuildImage: true });
+
+describe("assertPackages", () => {
+  it("normalizes spacing and refuses shell syntax", () => {
+    assert.strictEqual(assertPackages("  python3   nodejs "), "python3 nodejs");
+    assert.throws(() => assertPackages("python3; rm -rf /"));
+  });
+});
+
+describe("setupScript", () => {
+  it("adds the chosen packages to the image", () => {
+    assert.include(SETUP_SCRIPT, "ripgrep iproute2 python3 >/dev/null");
+  });
+
   it("never puts the sudo password in an argument", () => {
     assert.include(SETUP_SCRIPT, `printf '%s\\n' "$SUDO_PASSWORD" | sudo -S`);
     assert.notInclude(SETUP_SCRIPT, "sudo $SUDO_PASSWORD");

@@ -2,6 +2,7 @@ import type {
   OpenShellAccessRequest,
   OpenShellDenial,
   OpenShellFileDenial,
+  OpenShellFileRequest,
   OpenShellGuardRule,
   OpenShellOverview,
   OpenShellSandboxSummary,
@@ -12,6 +13,7 @@ import { DEFAULT_IMAGE_PATH, isSetupRunning, SETUP_STEP_FILE } from "./ClaudeOpe
 import {
   quoteForShell as quote,
   resolveHostDistro,
+  restartSandbox,
   runInLinux,
 } from "./ClaudeOpenShellWorkspace.ts";
 
@@ -19,6 +21,9 @@ const HOST_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9.-]*$/;
 const BINARY_PATTERN = /^\/[\w./+-]+$/;
 const SANDBOX_PATTERN = /^t3-[a-z0-9]+$/;
 const CHUNK_PATTERN = /^[0-9a-f-]{36}$/;
+const PATH_PATTERN = /^\/[\w./+-]*$/;
+const QUOTED_PATH = /'(\/[^']*)'/;
+const LEADING_PATH = /^[\w.-]+: (\/\S+):/;
 const FILE_DENIAL_PATTERN =
   /.*(?:Permission denied|Operation not permitted|Read-only file system).*/;
 const FILE_DENIAL_WINDOW_MS = 30 * 60_000;
@@ -105,6 +110,7 @@ const accessKey = (sandbox: string, { binary, host, port }: Omit<OpenShellDenial
 
 /** A log line appears at once, and the gateway's draft only about ten seconds later. */
 const deniedByUser = new Set<string>();
+const deniedPaths = new Set<string>();
 
 export const mergeAccessRequests = (
   sandbox: string,
@@ -134,6 +140,27 @@ export const mergeAccessRequests = (
       ? []
       : [{ chunkId: chunkId ?? null, binary, host, port }],
   );
+};
+
+const deniedPath = (message: string): string | null =>
+  QUOTED_PATH.exec(message)?.[1] ?? LEADING_PATH.exec(message)?.[1] ?? null;
+
+const isCovered = (path: string, roots: ReadonlyArray<string>) =>
+  roots.some((root) => root === "/" || path === root || path.startsWith(`${root}/`));
+
+/** A write to a covered path stays refused, because a read rule cannot change that. */
+export const parseFileRequests = (
+  sandbox: string,
+  denials: ReadonlyArray<OpenShellFileDenial>,
+  roots: ReadonlyArray<string>,
+): ReadonlyArray<OpenShellFileRequest> => {
+  const requests = new Map<string, OpenShellFileRequest>();
+  for (const { command, message } of denials) {
+    const path = deniedPath(message);
+    if (path === null || isCovered(path, roots) || deniedPaths.has(`${sandbox} ${path}`)) continue;
+    requests.set(path, { path, program: command.split(/\s/)[0] ?? command });
+  }
+  return [...requests.values()];
 };
 
 /** Landlock refuses in the kernel without a log line, so the agent's own output is the only trace. */
@@ -200,7 +227,11 @@ const parseActivePolicy = (output: string) =>
   ).policy;
 
 /** Polled every few seconds, so all three reads share one WSL process. */
-export const readAccessRequests = async (target: OpenShellTarget, platform: NodeJS.Platform) => {
+export const readAccessRequests = async (
+  target: OpenShellTarget,
+  fileDenials: ReadonlyArray<OpenShellFileDenial>,
+  platform: NodeJS.Platform,
+) => {
   const name = quote(target.sandbox);
   const output = (
     await runInLinux(
@@ -215,13 +246,53 @@ exit 0`,
     )
   ).toString("utf8");
   const [logs = "", policy = "{}", pending = ""] = output.split(SECTION_MARKER);
-  const rules = parseRules(parseActivePolicy(policy).network_policies ?? {});
-  return mergeAccessRequests(
-    target.sandbox,
-    parseDenials(logs),
-    parseAccessRequests(pending),
-    rules,
+  const active = parseActivePolicy(policy);
+  const files = active.filesystem_policy;
+  return {
+    requests: mergeAccessRequests(
+      target.sandbox,
+      parseDenials(logs),
+      parseAccessRequests(pending),
+      parseRules(active.network_policies ?? {}),
+    ),
+    fileRequests: parseFileRequests(target.sandbox, fileDenials, [
+      ...(files?.read_only ?? []),
+      ...(files?.read_write ?? []),
+    ]),
+  };
+};
+
+export const allowFilePath = async (
+  target: OpenShellTarget,
+  path: string,
+  platform: NodeJS.Platform,
+): Promise<void> => {
+  if (!PATH_PATTERN.test(path)) throw new Error(`Invalid path: ${path}`);
+  const name = quote(target.sandbox);
+  const policy = parseActivePolicy(
+    await openshell(target, `policy get ${name} --full -o json`, platform),
   );
+  const files = policy.filesystem_policy;
+  const next = {
+    ...policy,
+    filesystem_policy: { ...files, read_only: [...(files?.read_only ?? []), path] },
+  };
+  await runInLinux(
+    target,
+    `FILE=$(mktemp --suffix=.json)
+cat >"$FILE"
+openshell policy set ${name} --policy "$FILE" --wait </dev/null >/dev/null
+STATUS=$?
+rm -f "$FILE"
+exit $STATUS`,
+    platform,
+    Buffer.from(JSON.stringify(next)),
+  );
+  await restartSandbox(target, platform);
+};
+
+export const denyFilePath = (target: OpenShellTarget, path: string): void => {
+  deniedPaths.add(`${target.sandbox} ${path}`);
 };
 
 export const denyAccessRequest = async (
@@ -251,11 +322,11 @@ export const readGuard = async (
   platform: NodeJS.Platform,
 ) => {
   const name = quote(target.sandbox);
-  const [sandbox, policy, logs, requests] = await Promise.all([
+  const [sandbox, policy, logs, access] = await Promise.all([
     openshell(target, `sandbox get ${name} -o json`, platform),
     openshell(target, `policy get ${name} --full -o json`, platform),
     openshell(target, `logs ${name} --since ${DENIAL_LOG_WINDOW} -n 500`, platform),
-    readAccessRequests(target, platform),
+    readAccessRequests(target, fileDenials, platform),
   ]);
   const { phase } = JSON.parse(sandbox) as { readonly phase: string };
   const active = parseActivePolicy(policy);
@@ -264,7 +335,7 @@ export const readGuard = async (
     phase,
     rules: parseRules(active.network_policies ?? {}),
     denials: parseDenials(logs),
-    requests,
+    ...access,
     fileDenials,
     readOnlyPaths: active.filesystem_policy?.read_only ?? [],
     writablePaths: active.filesystem_policy?.read_write ?? [],
@@ -340,7 +411,7 @@ export const listSandboxes = async (profile: OpenShellProfile, platform: NodeJS.
 
 export const readOverview = async (
   profile: OpenShellProfile | undefined,
-  idleStopMinutes: number,
+  preferences: Pick<OpenShellOverview, "idleStopMinutes" | "imagePackages">,
   platform: NodeJS.Platform,
 ): Promise<OpenShellOverview> => {
   const host = { wslDistro: await resolveHostDistro(profile?.wslDistro, platform) };
@@ -354,7 +425,7 @@ export const readOverview = async (
     .catch(() => []);
   return {
     configured: profile !== undefined,
-    idleStopMinutes,
+    ...preferences,
     linuxAvailable: checks.apt === "yes",
     sudoNeedsPassword: checks.sudo !== "open",
     setupStep: isSetupRunning() ? checks.step || "check" : null,

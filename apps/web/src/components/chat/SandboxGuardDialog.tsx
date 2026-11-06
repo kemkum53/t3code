@@ -37,6 +37,10 @@ const changeNotice = (change: OpenShellSandboxGuardChange) => {
       return `Removed ${change.host}:${change.port} from the rules`;
     case "deny":
       return `Denied ${change.host}:${change.port}`;
+    case "allowPath":
+      return `Sandbox restarted with read access to ${change.path}`;
+    case "denyPath":
+      return `Denied read access to ${change.path}`;
     case "stop":
       return "Sandbox stopped, its files stay on disk";
     case "start":
@@ -212,6 +216,36 @@ function GuardContent(props: {
                 </ul>
               </section>
             ) : null}
+            {guard.fileRequests.length > 0 ? (
+              <section>
+                <h3 className="mb-1 text-sm font-medium">File requests</h3>
+                <ul className="space-y-1">
+                  {guard.fileRequests.map(({ path, program }) => (
+                    <li key={path} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="min-w-0 truncate font-mono">{path}</span>
+                      <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+                        {program}
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => void apply({ type: "denyPath", path })}
+                        >
+                          Deny
+                        </Button>
+                        <Button
+                          size="xs"
+                          disabled={busy}
+                          onClick={() => void apply({ type: "allowPath", path })}
+                        >
+                          Allow read
+                        </Button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
             {guard.fileDenials.length > 0 ? (
               <section>
                 <h3 className="mb-1 text-sm font-medium">Blocked file access</h3>
@@ -223,9 +257,6 @@ function GuardContent(props: {
                     </li>
                   ))}
                 </ul>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  File limits are fixed when the sandbox starts.
-                </p>
               </section>
             ) : null}
             <section>

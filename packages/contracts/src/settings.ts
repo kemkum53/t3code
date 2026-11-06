@@ -1319,6 +1319,9 @@ export const ServerSettings = Schema.Struct({
   ghqCloneLayout: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /** Zero keeps sandboxes running until the user stops them. */
   openShellIdleStopMinutes: Schema.Int.pipe(Schema.withDecodingDefault(Effect.succeed(30))),
+  openShellImagePackages: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed("python3 python3-pip nodejs npm")),
+  ),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -1681,6 +1684,7 @@ export const ServerSettingsPatch = Schema.Struct({
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   ghqCloneLayout: Schema.optionalKey(Schema.Boolean),
   openShellIdleStopMinutes: Schema.optionalKey(Schema.Int),
+  openShellImagePackages: Schema.optionalKey(Schema.String),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),

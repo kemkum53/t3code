@@ -136,11 +136,13 @@ function IdleStopRow(props: { readonly minutes: number; readonly onChanged: () =
   );
 }
 
-function SetupRow(props: {
+interface SetupProps {
   readonly environmentId: EnvironmentId;
   readonly overview: OpenShellOverview;
   readonly onChanged: () => void;
-}) {
+}
+
+function useSetupCommand(props: SetupProps, messages: { success: string; failure: string }) {
   const { environmentId, overview, onChanged } = props;
   const setup = useAtomCommand(orchestrationEnvironment.setupOpenShell);
   const [password, setPassword] = useState("");
@@ -154,23 +156,32 @@ function SetupRow(props: {
     return () => clearInterval(timer);
   }, [running, onChanged]);
 
-  const submit = async () => {
+  const submit = async (imagePackages: string | null) => {
     setStarted(true);
-    const result = await setup({ environmentId, input: { sudoPassword: password } });
+    const result = await setup({
+      environmentId,
+      input: { sudoPassword: password, imagePackages },
+    });
     setStarted(false);
     setPassword("");
     onChanged();
     if (result._tag === "Failure") {
-      if (!isAtomCommandInterrupted(result)) reportFailure("OpenShell was not set up", result);
+      if (!isAtomCommandInterrupted(result)) reportFailure(messages.failure, result);
       return;
     }
-    toastManager.add({
-      type: "success",
-      title: "OpenShell installed and sandbox templates added",
-    });
+    toastManager.add({ type: "success", title: messages.success });
   };
 
   const missingPassword = overview.sudoNeedsPassword && password === "";
+  return { running, password, setPassword, submit, missingPassword };
+}
+
+function SetupRow(props: SetupProps) {
+  const { overview } = props;
+  const { running, password, setPassword, submit, missingPassword } = useSetupCommand(props, {
+    success: "OpenShell installed and sandbox templates added",
+    failure: "OpenShell was not set up",
+  });
   return (
     <SettingsRow
       title="Set up this machine"
@@ -185,7 +196,7 @@ function SetupRow(props: {
           className="flex items-center gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            void submit();
+            void submit(null);
           }}
         >
           {overview.sudoNeedsPassword ? (
@@ -201,6 +212,53 @@ function SetupRow(props: {
           ) : null}
           <Button type="submit" size="sm" disabled={running || missingPassword}>
             {running ? "Installing" : "Install"}
+          </Button>
+        </form>
+      }
+    />
+  );
+}
+
+function ImagePackagesRow(props: SetupProps) {
+  const { overview } = props;
+  const [packages, setPackages] = useState(overview.imagePackages);
+  const { running, password, setPassword, submit, missingPassword } = useSetupCommand(props, {
+    success: "Sandbox image rebuilt, new chats get these packages",
+    failure: "Sandbox image was not rebuilt",
+  });
+  return (
+    <SettingsRow
+      title="Packages in new sandboxes"
+      description="Space separated apt packages. Open chats keep their own image."
+      status={running ? (SETUP_STEP_LABELS[overview.setupStep ?? "check"] ?? "Working") : undefined}
+      control={
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit(packages.trim());
+          }}
+        >
+          <Input
+            aria-label="Image packages"
+            autoComplete="off"
+            disabled={running}
+            value={packages}
+            onChange={(event) => setPackages(event.target.value)}
+          />
+          {overview.sudoNeedsPassword ? (
+            <Input
+              aria-label="Linux password"
+              autoComplete="off"
+              disabled={running}
+              placeholder="Linux password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          ) : null}
+          <Button type="submit" size="sm" disabled={running || missingPassword}>
+            {running ? "Rebuilding" : "Rebuild"}
           </Button>
         </form>
       }
@@ -333,6 +391,13 @@ function OpenShellOverviewContent(props: { readonly environmentId: EnvironmentId
       </SettingsSection>
       <SettingsSection title="Sandboxes">
         <IdleStopRow minutes={overview.idleStopMinutes} onChanged={query.refresh} />
+        {installed ? (
+          <ImagePackagesRow
+            environmentId={environmentId}
+            overview={overview}
+            onChanged={query.refresh}
+          />
+        ) : null}
         {overview.sandboxes.length === 0 ? (
           <SettingsRow title="No sandboxes" />
         ) : (

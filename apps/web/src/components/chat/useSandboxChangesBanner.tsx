@@ -175,7 +175,38 @@ export function useSandboxChangesBanner(input: {
   };
 
   const request = requestsQuery.data?.requests[0];
+  const fileRequest = request === undefined ? requestsQuery.data?.fileRequests[0] : undefined;
   const label = changes.template ?? "Sandbox";
+
+  const resolveFileRequest = async (approved: boolean) => {
+    if (fileRequest === undefined) return;
+    setResolving(true);
+    const result = await updateGuard({
+      environmentId,
+      input: {
+        threadId,
+        change: { type: approved ? "allowPath" : "denyPath", path: fileRequest.path },
+      },
+    });
+    setResolving(false);
+    if (result._tag === "Failure") {
+      if (isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add({
+        type: "error",
+        title: "File request was not answered",
+        description: error instanceof Error ? error.message : undefined,
+      });
+      return;
+    }
+    toastManager.add({
+      type: "success",
+      title: approved
+        ? `Sandbox restarted with read access to ${fileRequest.path}`
+        : `Denied read access to ${fileRequest.path}`,
+    });
+    refreshRequests();
+  };
 
   const resolveRequest = async (approved: boolean) => {
     if (request === undefined) return;
@@ -224,10 +255,14 @@ export function useSandboxChangesBanner(input: {
 
   return {
     id: "sandbox-changes",
-    variant: request === undefined ? "info" : "warning",
+    variant: request === undefined && fileRequest === undefined ? "info" : "warning",
     icon: <BoxIcon />,
     title:
-      request === undefined ? changedTitle : `${programName} wants ${request.host}:${request.port}`,
+      request !== undefined
+        ? `${programName} wants ${request.host}:${request.port}`
+        : fileRequest !== undefined
+          ? `${fileRequest.program} wants to read ${fileRequest.path}`
+          : changedTitle,
     actions: (
       <>
         {request === undefined ? null : (
@@ -242,6 +277,25 @@ export function useSandboxChangesBanner(input: {
             </Button>
             <Button size="xs" disabled={resolving} onClick={() => void resolveRequest(true)}>
               {resolving ? "Allowing" : "Allow"}
+            </Button>
+          </>
+        )}
+        {fileRequest === undefined ? null : (
+          <>
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={resolving}
+              onClick={() => void resolveFileRequest(false)}
+            >
+              Deny
+            </Button>
+            <Button
+              size="xs"
+              disabled={resolving || phase === "running"}
+              onClick={() => void resolveFileRequest(true)}
+            >
+              {resolving ? "Restarting" : "Allow"}
             </Button>
           </>
         )}

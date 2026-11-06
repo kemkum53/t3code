@@ -23,8 +23,15 @@ export const OpenShellAccessRequest = Schema.Struct({
 });
 export type OpenShellAccessRequest = typeof OpenShellAccessRequest.Type;
 
+export const OpenShellFileRequest = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  program: TrimmedNonEmptyString,
+});
+export type OpenShellFileRequest = typeof OpenShellFileRequest.Type;
+
 export const OpenShellSandboxRequests = Schema.Struct({
   requests: Schema.Array(OpenShellAccessRequest),
+  fileRequests: Schema.Array(OpenShellFileRequest),
 });
 export type OpenShellSandboxRequests = typeof OpenShellSandboxRequests.Type;
 
@@ -72,6 +79,7 @@ export const OpenShellSandboxGuard = Schema.Struct({
   rules: Schema.Array(OpenShellGuardRule),
   denials: Schema.Array(OpenShellDenial),
   requests: Schema.Array(OpenShellAccessRequest),
+  fileRequests: Schema.Array(OpenShellFileRequest),
   fileDenials: Schema.Array(OpenShellFileDenial),
   readOnlyPaths: Schema.Array(Schema.String),
   writablePaths: Schema.Array(Schema.String),
@@ -97,6 +105,8 @@ export const OpenShellSandboxGuardChange = Schema.Union([
     binary: TrimmedNonEmptyString,
     chunkId: Schema.NullOr(TrimmedNonEmptyString),
   }),
+  Schema.Struct({ type: Schema.Literal("allowPath"), path: TrimmedNonEmptyString }),
+  Schema.Struct({ type: Schema.Literal("denyPath"), path: TrimmedNonEmptyString }),
   Schema.Struct({ type: Schema.Literal("stop") }),
   Schema.Struct({ type: Schema.Literal("start") }),
 ]);
@@ -118,6 +128,7 @@ export type OpenShellSandboxSummary = typeof OpenShellSandboxSummary.Type;
 export const OpenShellOverview = Schema.Struct({
   configured: Schema.Boolean,
   idleStopMinutes: NonNegativeInt,
+  imagePackages: Schema.String,
   linuxAvailable: Schema.Boolean,
   sudoNeedsPassword: Schema.Boolean,
   setupStep: Schema.NullOr(TrimmedNonEmptyString),
@@ -134,7 +145,11 @@ export type OpenShellOverview = typeof OpenShellOverview.Type;
 export const OpenShellSaveCredentialInput = Schema.Struct({ token: TrimmedNonEmptyString });
 export type OpenShellSaveCredentialInput = typeof OpenShellSaveCredentialInput.Type;
 
-export const OpenShellSetupInput = Schema.Struct({ sudoPassword: Schema.String });
+export const OpenShellSetupInput = Schema.Struct({
+  sudoPassword: Schema.String,
+  /** Set to rebuild the image with these apt packages. */
+  imagePackages: Schema.NullOr(Schema.String),
+});
 export type OpenShellSetupInput = typeof OpenShellSetupInput.Type;
 
 export const OpenShellControlSandboxInput = Schema.Struct({
