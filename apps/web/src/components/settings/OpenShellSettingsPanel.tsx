@@ -302,6 +302,7 @@ function TemplateRow(props: SetupProps & { readonly template: OpenShellTemplate 
           <Input
             aria-label={`Packages in ${template.name}`}
             autoComplete="off"
+            className="w-72"
             disabled={build.running}
             value={packages}
             onChange={(event) => setPackages(event.target.value)}
@@ -365,33 +366,10 @@ function AddTemplateRow(props: SetupProps) {
   return (
     <SettingsRow
       title="Add template"
-      description="Each template has its own image of 600 to 900 MB and takes about 2 minutes to build."
+      description="Each template has its own image of 600 to 900 MB."
       status={build.stepLabel}
       control={
-        <form
-          className="flex flex-wrap items-center justify-end gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void build
-              .run((sudoPassword) =>
-                save({
-                  environmentId,
-                  input: {
-                    id: null,
-                    name: name.trim(),
-                    packages: packages.trim(),
-                    network,
-                    sudoPassword,
-                  },
-                }),
-              )
-              .then((saved) => {
-                if (!saved) return;
-                setName("");
-                setPackages("");
-              });
-          }}
-        >
+        <span className="flex items-center gap-1">
           {TEMPLATE_PRESETS.map((preset) => (
             <Button
               key={preset.name}
@@ -407,55 +385,83 @@ function AddTemplateRow(props: SetupProps) {
               {preset.name}
             </Button>
           ))}
-          <Input
-            aria-label="Template name"
-            autoComplete="off"
-            disabled={build.running}
-            placeholder="Name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-          <Input
-            aria-label="Template packages"
-            autoComplete="off"
-            disabled={build.running}
-            placeholder="apt packages"
-            value={packages}
-            onChange={(event) => setPackages(event.target.value)}
-          />
-          <Select
-            value={network}
-            onValueChange={(next) => {
-              if (next === "developer" || next === "claude") setNetwork(next);
-            }}
-          >
-            <SelectTrigger aria-label="Template network" size="sm">
-              <SelectValue>{networkLabel}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup align="end" alignItemWithTrigger={false}>
-              {NETWORK_OPTIONS.map(({ value, label }) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-          <PasswordInput
-            visible={overview.sudoNeedsPassword}
-            disabled={build.running}
-            value={build.password}
-            onChange={build.setPassword}
-          />
-          <Button
-            type="submit"
-            size="sm"
-            disabled={build.running || build.missingPassword || name.trim() === ""}
-          >
-            {build.running ? "Building" : "Add"}
-          </Button>
-        </form>
+        </span>
       }
-    />
+    >
+      <form
+        className="mt-3 mb-2 flex flex-wrap items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void build
+            .run((sudoPassword) =>
+              save({
+                environmentId,
+                input: {
+                  id: null,
+                  name: name.trim(),
+                  packages: packages.trim(),
+                  network,
+                  sudoPassword,
+                },
+              }),
+            )
+            .then((saved) => {
+              if (!saved) return;
+              setName("");
+              setPackages("");
+            });
+        }}
+      >
+        <Input
+          aria-label="Template name"
+          autoComplete="off"
+          className="w-36"
+          disabled={build.running}
+          placeholder="Name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+        <Input
+          aria-label="Template packages"
+          autoComplete="off"
+          className="min-w-48 flex-1"
+          disabled={build.running}
+          placeholder="apt packages"
+          value={packages}
+          onChange={(event) => setPackages(event.target.value)}
+        />
+        <Select
+          value={network}
+          onValueChange={(next) => {
+            if (next === "developer" || next === "claude") setNetwork(next);
+          }}
+        >
+          <SelectTrigger aria-label="Template network" className="w-48" size="sm">
+            <SelectValue>{networkLabel}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {NETWORK_OPTIONS.map(({ value, label }) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+        <PasswordInput
+          visible={overview.sudoNeedsPassword}
+          disabled={build.running}
+          value={build.password}
+          onChange={build.setPassword}
+        />
+        <Button
+          type="submit"
+          size="sm"
+          disabled={build.running || build.missingPassword || name.trim() === ""}
+        >
+          {build.running ? "Building" : "Add"}
+        </Button>
+      </form>
+    </SettingsRow>
   );
 }
 
