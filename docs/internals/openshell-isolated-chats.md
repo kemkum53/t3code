@@ -50,6 +50,24 @@ Clean Ubuntu 24.04 WSL distro, non-root user, sudo password required.
 The image is built on the user's machine from Ubuntu Base in a chroot, so setup needs no Docker and
 no one redistributes Claude Code. Downloads are pinned by SHA-256.
 
+## Access request timing measured on 2026-11-06
+
+| Step                                | Result                                 |
+| ----------------------------------- | -------------------------------------- |
+| Denial reaches `openshell logs`     | 0.3 s                                  |
+| Denial reaches `rule get`           | 6 to 10 s after the log line           |
+| `rule approve` until usable         | 7 to 17 s                              |
+| `policy update --wait` until usable | 1 to 10 s, supervisor polls every 10 s |
+| Reading requests from Windows       | 174 ms                                 |
+
+`OPENSHELL_DENIAL_FLUSH_INTERVAL_SECS` and `OPENSHELL_POLICY_POLL_INTERVAL_SECS` exist, but
+`sandbox create --env` refuses keys that start with `OPENSHELL_`, so requests come from the logs.
+
+Landlock refusals leave no log line. The guard finds them in the agent's command output, so a
+denial the agent never prints stays invisible.
+
+An idle box stops only after T3 has closed its session, because stopping it kills the agent.
+
 ## Distribution
 
 T3 Code has no plugin system and upstream does not take large features, so this ships as a fork with
@@ -112,5 +130,5 @@ its own installer. A user still has to install WSL with Ubuntu and paste a setup
 - [x] Guard dialog: network rules, denials, stop and start
 - [x] Install steps in the settings page
 - [x] Delete warning for unapplied changes
-- [ ] Stop idle boxes automatically
+- [x] Stop idle boxes automatically
 - [ ] Raspberry Pi support

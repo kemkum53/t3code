@@ -32,13 +32,11 @@ const DEFAULT_BINARY = "/usr/bin/curl";
 const changeNotice = (change: OpenShellSandboxGuardChange) => {
   switch (change.type) {
     case "allow":
-      return `Allowed ${change.host}:${change.port} for ${change.binary}`;
+      return `Allowed ${change.host}:${change.port} for ${change.binary}, active now`;
     case "remove":
       return `Removed ${change.host}:${change.port} from the rules`;
-    case "approve":
-      return "Access approved, active within 20 seconds";
-    case "reject":
-      return "Access denied";
+    case "deny":
+      return `Denied ${change.host}:${change.port}`;
     case "stop":
       return "Sandbox stopped, its files stay on disk";
     case "start":
@@ -148,7 +146,7 @@ function GuardContent(props: {
                 <ul className="space-y-1">
                   {guard.requests.map((request) => (
                     <li
-                      key={request.chunkId}
+                      key={`${request.binary}:${request.host}:${request.port}`}
                       className="flex items-center justify-between gap-3 text-sm"
                     >
                       <span className="min-w-0 truncate font-mono">
@@ -160,14 +158,29 @@ function GuardContent(props: {
                           size="xs"
                           variant="ghost"
                           disabled={busy}
-                          onClick={() => void apply({ type: "reject", chunkId: request.chunkId })}
+                          onClick={() =>
+                            void apply({
+                              type: "deny",
+                              host: request.host,
+                              port: request.port,
+                              binary: request.binary,
+                              chunkId: request.chunkId,
+                            })
+                          }
                         >
                           Deny
                         </Button>
                         <Button
                           size="xs"
                           disabled={busy}
-                          onClick={() => void apply({ type: "approve", chunkId: request.chunkId })}
+                          onClick={() =>
+                            void apply({
+                              type: "allow",
+                              host: request.host,
+                              port: request.port,
+                              binary: request.binary,
+                            })
+                          }
                         >
                           Allow
                         </Button>
@@ -199,6 +212,29 @@ function GuardContent(props: {
                 </ul>
               </section>
             ) : null}
+            {guard.fileDenials.length > 0 ? (
+              <section>
+                <h3 className="mb-1 text-sm font-medium">Blocked file access</h3>
+                <ul className="space-y-1">
+                  {guard.fileDenials.map((denial) => (
+                    <li key={`${denial.command}:${denial.message}`} className="text-sm">
+                      <span className="block truncate font-mono">{denial.command}</span>
+                      <span className="block truncate text-muted-foreground">{denial.message}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  File limits are fixed when the sandbox starts.
+                </p>
+              </section>
+            ) : null}
+            <section>
+              <h3 className="mb-1 text-sm font-medium">Allowed files</h3>
+              <p className="font-mono text-xs">Write: {guard.writablePaths.join("  ")}</p>
+              <p className="font-mono text-xs text-muted-foreground">
+                Read: {guard.readOnlyPaths.join("  ")}
+              </p>
+            </section>
             <section>
               <h3 className="mb-1 text-sm font-medium">Allowed network</h3>
               <ul className="space-y-1">

@@ -1,6 +1,7 @@
 import type {
   OpenShellAccessRequest,
   OpenShellDenial,
+  OpenShellFileDenial,
   OpenShellGuardRule,
   OpenShellOverview,
   OpenShellSandboxSummary,
@@ -18,6 +19,11 @@ const HOST_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9.-]*$/;
 const BINARY_PATTERN = /^\/[\w./+-]+$/;
 const SANDBOX_PATTERN = /^t3-[a-z0-9]+$/;
 const CHUNK_PATTERN = /^[0-9a-f-]{36}$/;
+const FILE_DENIAL_PATTERN =
+  /.*(?:Permission denied|Operation not permitted|Read-only file system).*/;
+const FILE_DENIAL_WINDOW_MS = 30 * 60_000;
+const MAX_FILE_DENIALS = 10;
+const SECTION_MARKER = "__T3_SECTION__";
 const USER_RULE_PREFIX = "t3_user_";
 const DEFAULT_CREDENTIAL_PROVIDER = "claude-sub";
 const CREDENTIAL_PROFILE = "claude-subscription";
@@ -29,6 +35,11 @@ const EXPECTED_DENIALS = /(^|\.)datadoghq\.com$/;
 interface PolicyEndpoint {
   readonly host?: string;
   readonly port?: number;
+}
+
+interface PolicyFiles {
+  readonly read_only?: ReadonlyArray<string>;
+  readonly read_write?: ReadonlyArray<string>;
 }
 
 interface PolicyRule {
@@ -65,7 +76,7 @@ export const parseDenials = (logs: string): ReadonlyArray<OpenShellDenial> => {
 };
 
 /** The CLI has no JSON form for rules, so requests are read from its labelled text. */
-export const parseAccessRequests = (output: string): ReadonlyArray<OpenShellAccessRequest> =>
+export const parseAccessRequests = (output: string): ReadonlyArray<ChunkRequest> =>
   output
     .split(/^\s*Chunk:\s*/m)
     .slice(1)
@@ -83,10 +94,66 @@ export const parseAccessRequests = (output: string): ReadonlyArray<OpenShellAcce
           binary: field("Binary"),
           host,
           port: Number(port),
-          prover: field("Prover").replace(/^prover:\s*/, ""),
         },
       ];
     });
+
+type ChunkRequest = OpenShellAccessRequest & { readonly chunkId: string };
+
+const accessKey = (sandbox: string, { binary, host, port }: Omit<OpenShellDenial, "count">) =>
+  `${sandbox} ${binary} ${host}:${port}`;
+
+/** A log line appears at once, and the gateway's draft only about ten seconds later. */
+const deniedByUser = new Set<string>();
+
+export const mergeAccessRequests = (
+  sandbox: string,
+  denials: ReadonlyArray<OpenShellDenial>,
+  pending: ReadonlyArray<ChunkRequest>,
+  rules: ReadonlyArray<OpenShellGuardRule>,
+): ReadonlyArray<OpenShellAccessRequest> => {
+  const allowed = ({ binary, host, port }: Omit<OpenShellDenial, "count">) =>
+    rules.some(
+      (rule) =>
+        rule.host === host &&
+        rule.port === port &&
+        (rule.binaries.length === 0 || rule.binaries.includes(binary)),
+    );
+  const fromLogs = denials.map(({ binary, host, port }) => ({
+    chunkId: pending.find(
+      (chunk) => chunk.binary === binary && chunk.host === host && chunk.port === port,
+    )?.chunkId,
+    binary,
+    host,
+    port,
+  }));
+  const known = new Set(fromLogs.map((request) => accessKey(sandbox, request)));
+  const fromChunks = pending.filter((chunk) => !known.has(accessKey(sandbox, chunk)));
+  return [...fromLogs, ...fromChunks].flatMap(({ chunkId, binary, host, port }) =>
+    allowed({ binary, host, port }) || deniedByUser.has(accessKey(sandbox, { binary, host, port }))
+      ? []
+      : [{ chunkId: chunkId ?? null, binary, host, port }],
+  );
+};
+
+/** Landlock refuses in the kernel without a log line, so the agent's own output is the only trace. */
+export const parseFileDenials = (
+  items: ReadonlyArray<{
+    readonly type: string;
+    readonly input?: unknown;
+    readonly output?: unknown;
+    readonly startedAt?: unknown;
+  }>,
+  now: number,
+): ReadonlyArray<OpenShellFileDenial> => {
+  const denials = items.flatMap(({ type, input, output, startedAt }) => {
+    if (type !== "command_execution" || typeof output !== "string") return [];
+    if (now - Date.parse(String(startedAt)) > FILE_DENIAL_WINDOW_MS) return [];
+    const message = FILE_DENIAL_PATTERN.exec(output)?.[0]?.trim();
+    return message === undefined ? [] : [{ command: String(input).trim(), message }];
+  });
+  return denials.slice(-MAX_FILE_DENIALS).reverse();
+};
 
 export const parseRules = (
   policies: Readonly<Record<string, PolicyRule>>,
@@ -122,29 +189,67 @@ const openshell = async (
 ): Promise<string> =>
   (await runInLinux(target, `exec openshell ${command} </dev/null`, platform)).toString("utf8");
 
-export const readAccessRequests = async (target: OpenShellTarget, platform: NodeJS.Platform) =>
-  parseAccessRequests(
-    await openshell(target, `rule get ${quote(target.sandbox)} --status pending`, platform),
-  );
+const parseActivePolicy = (output: string) =>
+  (
+    JSON.parse(output) as {
+      readonly policy: {
+        readonly network_policies?: Readonly<Record<string, PolicyRule>>;
+        readonly filesystem_policy?: PolicyFiles;
+      };
+    }
+  ).policy;
 
-export const resolveAccessRequest = async (
+/** Polled every few seconds, so all three reads share one WSL process. */
+export const readAccessRequests = async (target: OpenShellTarget, platform: NodeJS.Platform) => {
+  const name = quote(target.sandbox);
+  const output = (
+    await runInLinux(
+      target,
+      `openshell logs ${name} --since ${DENIAL_LOG_WINDOW} -n 500 </dev/null
+echo ${SECTION_MARKER}
+openshell policy get ${name} --full -o json </dev/null
+echo ${SECTION_MARKER}
+openshell rule get ${name} --status pending </dev/null
+exit 0`,
+      platform,
+    )
+  ).toString("utf8");
+  const [logs = "", policy = "{}", pending = ""] = output.split(SECTION_MARKER);
+  const rules = parseRules(parseActivePolicy(policy).network_policies ?? {});
+  return mergeAccessRequests(
+    target.sandbox,
+    parseDenials(logs),
+    parseAccessRequests(pending),
+    rules,
+  );
+};
+
+export const denyAccessRequest = async (
   target: OpenShellTarget,
-  chunkId: string,
-  approved: boolean,
+  request: {
+    readonly host: string;
+    readonly port: number;
+    readonly binary: string;
+    readonly chunkId: string | null;
+  },
   platform: NodeJS.Platform,
 ): Promise<void> => {
+  deniedByUser.add(accessKey(target.sandbox, request));
+  const { chunkId } = request;
+  if (chunkId === null) return;
   if (!CHUNK_PATTERN.test(chunkId)) throw new Error(`Invalid request id: ${chunkId}`);
-  const name = quote(target.sandbox);
   await openshell(
     target,
-    approved
-      ? `rule approve ${name} --chunk-id ${quote(chunkId)}`
-      : `rule reject ${name} --chunk-id ${quote(chunkId)} --reason ${quote("Denied by the user")}`,
+    `rule reject ${quote(target.sandbox)} --chunk-id ${quote(chunkId)} --reason ${quote("Denied by the user")}`,
     platform,
   );
 };
 
-export const readGuard = async (target: OpenShellTarget, platform: NodeJS.Platform) => {
+export const readGuard = async (
+  target: OpenShellTarget,
+  fileDenials: ReadonlyArray<OpenShellFileDenial>,
+  platform: NodeJS.Platform,
+) => {
   const name = quote(target.sandbox);
   const [sandbox, policy, logs, requests] = await Promise.all([
     openshell(target, `sandbox get ${name} -o json`, platform),
@@ -153,15 +258,16 @@ export const readGuard = async (target: OpenShellTarget, platform: NodeJS.Platfo
     readAccessRequests(target, platform),
   ]);
   const { phase } = JSON.parse(sandbox) as { readonly phase: string };
-  const { policy: active } = JSON.parse(policy) as {
-    readonly policy: { readonly network_policies?: Readonly<Record<string, PolicyRule>> };
-  };
+  const active = parseActivePolicy(policy);
   return {
     sandbox: target.sandbox,
     phase,
     rules: parseRules(active.network_policies ?? {}),
     denials: parseDenials(logs),
     requests,
+    fileDenials,
+    readOnlyPaths: active.filesystem_policy?.read_only ?? [],
+    writablePaths: active.filesystem_policy?.read_write ?? [],
   };
 };
 
@@ -225,8 +331,16 @@ export const parseHostChecks = (output: string): Readonly<Record<string, string>
       }),
   );
 
+export const listSandboxes = async (profile: OpenShellProfile, platform: NodeJS.Platform) =>
+  parseSandboxList(
+    (
+      await runInLinux(profile, "exec openshell sandbox list -o json </dev/null", platform)
+    ).toString("utf8"),
+  );
+
 export const readOverview = async (
   profile: OpenShellProfile | undefined,
+  idleStopMinutes: number,
   platform: NodeJS.Platform,
 ): Promise<OpenShellOverview> => {
   const host = { wslDistro: await resolveHostDistro(profile?.wslDistro, platform) };
@@ -240,6 +354,7 @@ export const readOverview = async (
     .catch(() => []);
   return {
     configured: profile !== undefined,
+    idleStopMinutes,
     linuxAvailable: checks.apt === "yes",
     sudoNeedsPassword: checks.sudo !== "open",
     setupStep: isSetupRunning() ? checks.step || "check" : null,

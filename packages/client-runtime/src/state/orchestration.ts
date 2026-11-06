@@ -166,6 +166,13 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
       idleTtlMs: 0,
       refreshIntervalMs: 5_000,
     }),
+    sandboxRequests: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:orchestration:sandbox-requests",
+      tag: ORCHESTRATION_V2_WS_METHODS.getSandboxRequests,
+      staleTimeMs: 0,
+      idleTtlMs: 0,
+      refreshIntervalMs: 3_000,
+    }),
     updateSandboxGuard: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:orchestration:update-sandbox-guard",
       tag: ORCHESTRATION_V2_WS_METHODS.updateSandboxGuard,

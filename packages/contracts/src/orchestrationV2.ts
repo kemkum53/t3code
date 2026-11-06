@@ -3582,6 +3582,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   getOpenShellOverview: "orchestration.getOpenShellOverview",
   saveOpenShellCredential: "orchestration.saveOpenShellCredential",
   setupOpenShell: "orchestration.setupOpenShell",
+  getSandboxRequests: "orchestration.getSandboxRequests",
   controlSandbox: "orchestration.controlSandbox",
   searchThreads: "orchestration.searchThreads",
   searchThread: "orchestration.searchThread",

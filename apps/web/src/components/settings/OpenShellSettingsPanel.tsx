@@ -6,12 +6,14 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 
+import { useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
 import { orchestrationEnvironment } from "../../state/orchestration";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 
@@ -82,6 +84,53 @@ function CredentialRow(props: {
             Save
           </Button>
         </form>
+      }
+    />
+  );
+}
+
+const IDLE_STOP_OPTIONS = [
+  { minutes: 0, label: "Never" },
+  { minutes: 30, label: "After 30 minutes" },
+  { minutes: 60, label: "After 1 hour" },
+  { minutes: 120, label: "After 2 hours" },
+];
+
+function IdleStopRow(props: { readonly minutes: number; readonly onChanged: () => void }) {
+  const updateSettings = useUpdatePrimarySettings();
+  const current = IDLE_STOP_OPTIONS.find(({ minutes }) => minutes === props.minutes);
+  return (
+    <SettingsRow
+      title="Stop idle sandboxes"
+      control={
+        <Select
+          value={String(props.minutes)}
+          onValueChange={(next) => {
+            if (typeof next !== "string") return;
+            const option = IDLE_STOP_OPTIONS.find(({ minutes }) => String(minutes) === next);
+            if (option === undefined) return;
+            updateSettings({ openShellIdleStopMinutes: option.minutes });
+            toastManager.add({
+              type: "success",
+              title:
+                option.minutes === 0
+                  ? "Idle sandboxes keep running"
+                  : `Idle sandboxes stop ${option.label.toLowerCase()}`,
+            });
+            props.onChanged();
+          }}
+        >
+          <SelectTrigger aria-label="Stop idle sandboxes" size="sm">
+            <SelectValue>{current?.label ?? `After ${props.minutes} minutes`}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {IDLE_STOP_OPTIONS.map(({ minutes, label }) => (
+              <SelectItem key={minutes} value={String(minutes)}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
       }
     />
   );
@@ -283,6 +332,7 @@ function OpenShellOverviewContent(props: { readonly environmentId: EnvironmentId
         />
       </SettingsSection>
       <SettingsSection title="Sandboxes">
+        <IdleStopRow minutes={overview.idleStopMinutes} onChanged={query.refresh} />
         {overview.sandboxes.length === 0 ? (
           <SettingsRow title="No sandboxes" />
         ) : (

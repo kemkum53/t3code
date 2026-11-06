@@ -16,6 +16,7 @@ import * as PeerLinks from "./peer/PeerLinks.ts";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Base64 from "effect/encoding/Base64";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -286,11 +287,12 @@ import { requestUrl } from "./requestUrl.ts";
 import {
   allowEndpoint,
   controlSandbox,
+  denyAccessRequest,
+  parseFileDenials,
   readAccessRequests,
   readGuard,
   readOverview,
   removeEndpoint,
-  resolveAccessRequest,
   saveCredential,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellGuard.ts";
 import {
@@ -1576,6 +1578,10 @@ export const layerWsRpc = (
           try: call,
           catch: (cause) => new OpenShellSandboxChangesError({ message, cause }),
         });
+      const readFileDenials = Effect.fn("ws.readFileDenials")(function* (threadId: ThreadId) {
+        const { turnItems } = yield* threadManagement.getThreadProjection(threadId);
+        return parseFileDenials(turnItems, yield* Clock.currentTimeMillis);
+      });
       const requireThreadSandbox = Effect.fn("ws.requireThreadSandbox")(function* (
         threadId: ThreadId,
       ) {
@@ -1590,9 +1596,19 @@ export const layerWsRpc = (
       const readThreadGuard = Effect.fn("ws.readThreadGuard")(function* (threadId: ThreadId) {
         const target = yield* requireThreadSandbox(threadId);
         const platform = yield* HostProcess.Platform;
+        const fileDenials = yield* readFileDenials(threadId);
         return yield* openShellCall("Failed to read sandbox rules", () =>
-          readGuard(target, platform),
+          readGuard(target, fileDenials, platform),
         );
+      });
+      const readThreadRequests = Effect.fn("ws.readThreadRequests")(function* (threadId: ThreadId) {
+        const sandbox = yield* threadSandbox(threadId);
+        if (sandbox === undefined) return { requests: [] };
+        const platform = yield* HostProcess.Platform;
+        const requests = yield* openShellCall("Failed to read access requests", () =>
+          readAccessRequests(sandbox.target, platform),
+        ).pipe(Effect.orElseSucceed(() => []));
+        return { requests };
       });
       const updateThreadGuard = Effect.fn("ws.updateThreadGuard")(function* (
         input: OpenShellUpdateGuardInput,
@@ -1606,14 +1622,8 @@ export const layerWsRpc = (
               return allowEndpoint(target, change, platform);
             case "remove":
               return removeEndpoint(target, change, platform);
-            case "approve":
-            case "reject":
-              return resolveAccessRequest(
-                target,
-                change.chunkId,
-                change.type === "approve",
-                platform,
-              );
+            case "deny":
+              return denyAccessRequest(target, change, platform);
             case "stop":
             case "start":
               return controlSandbox(target, change.type, platform);
@@ -1624,7 +1634,11 @@ export const layerWsRpc = (
         const settings = yield* serverSettings.getSettings;
         const platform = yield* HostProcess.Platform;
         return yield* openShellCall("Failed to read OpenShell status", () =>
-          readOverview(firstProfile(settings.providerInstances), platform),
+          readOverview(
+            firstProfile(settings.providerInstances),
+            settings.openShellIdleStopMinutes,
+            platform,
+          ),
         );
       });
       const storeOpenShellCredential = Effect.fn("ws.storeOpenShellCredential")(function* (
@@ -1692,7 +1706,7 @@ export const layerWsRpc = (
             workdir: null,
             template: null,
             hasProject: false,
-            requests: [],
+            blockedFileCount: 0,
             files: [],
             diff: "",
           };
@@ -1700,22 +1714,20 @@ export const layerWsRpc = (
         const platform = yield* HostProcess.Platform;
         // A stopped box cannot answer, and the chat still needs the way to start it again.
         const result = yield* openShellCall("Failed to read sandbox changes", () =>
-          Promise.all([
-            readSandboxChanges(sandbox.target, platform),
-            readAccessRequests(sandbox.target, platform),
-          ]),
+          readSandboxChanges(sandbox.target, platform),
         ).pipe(Effect.option);
-        const [changes, requests] = Option.getOrElse(result, () => [
-          { files: [], patch: Buffer.alloc(0) },
-          [],
-        ]);
+        const changes = Option.getOrElse(result, () => ({
+          files: [],
+          patch: Buffer.alloc(0),
+        }));
+        const fileDenials = yield* readFileDenials(threadId);
         return {
           sandboxed: true,
           sandbox: sandbox.target.sandbox,
           workdir: sandbox.target.workdir,
           template: sandbox.template,
           hasProject: yield* sandboxHasProject(sandbox.hostCwd),
-          requests,
+          blockedFileCount: fileDenials.length,
           files: changes.files,
           diff: changes.patch.toString("utf8"),
         };
@@ -2392,6 +2404,10 @@ export const layerWsRpc = (
         [ORCHESTRATION_V2_WS_METHODS.saveOpenShellCredential]: (input) =>
           storeOpenShellCredential(input.token).pipe(
             asOpenShellError("Failed to save the Claude token"),
+          ),
+        [ORCHESTRATION_V2_WS_METHODS.getSandboxRequests]: (input) =>
+          readThreadRequests(input.threadId).pipe(
+            asOpenShellError("Failed to read access requests"),
           ),
         [ORCHESTRATION_V2_WS_METHODS.setupOpenShell]: (input) =>
           runOpenShellSetup(input.sudoPassword).pipe(asOpenShellError("OpenShell setup failed")),

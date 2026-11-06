@@ -16,13 +16,23 @@ export const OpenShellChangedFile = Schema.Struct({
 export type OpenShellChangedFile = typeof OpenShellChangedFile.Type;
 
 export const OpenShellAccessRequest = Schema.Struct({
-  chunkId: TrimmedNonEmptyString,
+  chunkId: Schema.NullOr(TrimmedNonEmptyString),
   binary: TrimmedNonEmptyString,
   host: TrimmedNonEmptyString,
   port: NonNegativeInt,
-  prover: Schema.String,
 });
 export type OpenShellAccessRequest = typeof OpenShellAccessRequest.Type;
+
+export const OpenShellSandboxRequests = Schema.Struct({
+  requests: Schema.Array(OpenShellAccessRequest),
+});
+export type OpenShellSandboxRequests = typeof OpenShellSandboxRequests.Type;
+
+export const OpenShellFileDenial = Schema.Struct({
+  command: TrimmedNonEmptyString,
+  message: TrimmedNonEmptyString,
+});
+export type OpenShellFileDenial = typeof OpenShellFileDenial.Type;
 
 export const OpenShellSandboxChanges = Schema.Struct({
   sandboxed: Schema.Boolean,
@@ -30,7 +40,7 @@ export const OpenShellSandboxChanges = Schema.Struct({
   workdir: Schema.NullOr(TrimmedNonEmptyString),
   template: Schema.NullOr(TrimmedNonEmptyString),
   hasProject: Schema.Boolean,
-  requests: Schema.Array(OpenShellAccessRequest),
+  blockedFileCount: NonNegativeInt,
   files: Schema.Array(OpenShellChangedFile),
   diff: Schema.String,
 });
@@ -62,6 +72,9 @@ export const OpenShellSandboxGuard = Schema.Struct({
   rules: Schema.Array(OpenShellGuardRule),
   denials: Schema.Array(OpenShellDenial),
   requests: Schema.Array(OpenShellAccessRequest),
+  fileDenials: Schema.Array(OpenShellFileDenial),
+  readOnlyPaths: Schema.Array(Schema.String),
+  writablePaths: Schema.Array(Schema.String),
 });
 export type OpenShellSandboxGuard = typeof OpenShellSandboxGuard.Type;
 
@@ -77,8 +90,13 @@ export const OpenShellSandboxGuardChange = Schema.Union([
     host: TrimmedNonEmptyString,
     port: NonNegativeInt,
   }),
-  Schema.Struct({ type: Schema.Literal("approve"), chunkId: TrimmedNonEmptyString }),
-  Schema.Struct({ type: Schema.Literal("reject"), chunkId: TrimmedNonEmptyString }),
+  Schema.Struct({
+    type: Schema.Literal("deny"),
+    host: TrimmedNonEmptyString,
+    port: NonNegativeInt,
+    binary: TrimmedNonEmptyString,
+    chunkId: Schema.NullOr(TrimmedNonEmptyString),
+  }),
   Schema.Struct({ type: Schema.Literal("stop") }),
   Schema.Struct({ type: Schema.Literal("start") }),
 ]);
@@ -99,6 +117,7 @@ export type OpenShellSandboxSummary = typeof OpenShellSandboxSummary.Type;
 
 export const OpenShellOverview = Schema.Struct({
   configured: Schema.Boolean,
+  idleStopMinutes: NonNegativeInt,
   linuxAvailable: Schema.Boolean,
   sudoNeedsPassword: Schema.Boolean,
   setupStep: Schema.NullOr(TrimmedNonEmptyString),

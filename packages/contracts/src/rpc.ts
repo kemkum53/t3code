@@ -123,6 +123,7 @@ import {
   OpenShellSandboxChanges,
   OpenShellSandboxChangesError,
   OpenShellSandboxGuard,
+  OpenShellSandboxRequests,
   OpenShellSaveCredentialInput,
   OpenShellSetupInput,
   OpenShellThreadInput,
@@ -1801,6 +1802,15 @@ const WsOrchestrationV2SaveOpenShellCredentialRpc = Rpc.make(
   },
 );
 
+const WsOrchestrationV2GetSandboxRequestsRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.getSandboxRequests,
+  {
+    payload: OpenShellThreadInput,
+    success: OpenShellSandboxRequests,
+    error: Schema.Union([OpenShellSandboxChangesError, EnvironmentAuthorizationError]),
+  },
+);
+
 const WsOrchestrationV2SetupOpenShellRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.setupOpenShell, {
   payload: OpenShellSetupInput,
   error: Schema.Union([OpenShellSandboxChangesError, EnvironmentAuthorizationError]),
@@ -2270,6 +2280,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2GetOpenShellOverviewRpc,
   WsOrchestrationV2SaveOpenShellCredentialRpc,
   WsOrchestrationV2SetupOpenShellRpc,
+  WsOrchestrationV2GetSandboxRequestsRpc,
   WsOrchestrationV2ControlSandboxRpc,
   WsOrchestrationV2SearchThreadsRpc,
   WsOrchestrationV2SearchThreadRpc,

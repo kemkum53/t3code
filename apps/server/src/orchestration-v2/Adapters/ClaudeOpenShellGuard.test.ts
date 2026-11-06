@@ -2,8 +2,10 @@ import { assert, describe, it } from "@effect/vitest";
 
 import {
   assertSandboxName,
+  mergeAccessRequests,
   parseAccessRequests,
   parseDenials,
+  parseFileDenials,
   parseHostChecks,
   parseRules,
   parseSandboxList,
@@ -75,6 +77,65 @@ describe("assertSandboxName", () => {
   });
 });
 
+describe("mergeAccessRequests", () => {
+  const denial = { binary: "/usr/bin/curl", host: "example.com", port: 443, count: 1 };
+  const chunk = { chunkId: "a", binary: denial.binary, host: denial.host, port: denial.port };
+
+  it("shows a denial before the gateway has a draft for it", () => {
+    assert.deepStrictEqual(mergeAccessRequests("t3-a", [denial], [], []), [
+      { chunkId: null, binary: denial.binary, host: denial.host, port: 443 },
+    ]);
+  });
+
+  it("joins a denial with its draft instead of listing both", () => {
+    assert.deepStrictEqual(
+      mergeAccessRequests("t3-a", [denial], [chunk], []).map(({ chunkId }) => chunkId),
+      ["a"],
+    );
+  });
+
+  it("drops a request once a rule covers it", () => {
+    const rule = {
+      name: "t3_user_curl",
+      host: denial.host,
+      port: 443,
+      binaries: [denial.binary],
+      managed: false,
+    };
+    assert.deepStrictEqual(mergeAccessRequests("t3-a", [denial], [chunk], [rule]), []);
+  });
+});
+
+describe("parseFileDenials", () => {
+  const now = Date.parse("2026-11-06T08:20:00Z");
+  const item = (output: string, startedAt = "2026-11-06T08:13:54Z") => ({
+    type: "command_execution",
+    input: "ls -la /",
+    output,
+    startedAt,
+  });
+
+  it("reports the denied command with its message", () => {
+    assert.deepStrictEqual(
+      parseFileDenials(
+        [item("Error: Exit code 2\nls: cannot open directory '/': Permission denied")],
+        now,
+      ),
+      [{ command: "ls -la /", message: "ls: cannot open directory '/': Permission denied" }],
+    );
+  });
+
+  it("skips clean output and old attempts", () => {
+    assert.deepStrictEqual(
+      parseFileDenials(
+        [item("ok"), item("touch: x: Permission denied", "2026-11-06T07:00:00Z")],
+        now,
+      ),
+      [],
+    );
+  });
+});
+
 describe("parseAccessRequests", () => {
   it("reads pending requests and skips telemetry", () => {
     const output = [
@@ -98,7 +159,6 @@ describe("parseAccessRequests", () => {
         binary: "/usr/bin/curl",
         host: "example.com",
         port: 443,
-        prover: "no new findings",
       },
     ]);
   });

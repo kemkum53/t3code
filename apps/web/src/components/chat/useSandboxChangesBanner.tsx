@@ -1,3 +1,5 @@
+import { FileDiff } from "@pierre/diffs/react";
+import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
 import { useState } from "react";
 import type { EnvironmentId, OpenShellSandboxChanges, ThreadId } from "@t3tools/contracts";
 import {
@@ -6,9 +8,14 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { BoxIcon } from "lucide-react";
 
+import { useRenderedAppearance } from "../../hooks/useTheme";
+import { resolveDiffThemeName } from "../../lib/diffRendering";
+import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
 import { orchestrationEnvironment } from "../../state/orchestration";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { DIFF_VIEW_UNSAFE_CSS } from "../diffs/StyledDiffCodeView";
+import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -24,8 +31,49 @@ import { SandboxGuardButton } from "./SandboxGuardDialog";
 
 const fileCount = (count: number) => (count === 1 ? "1 file" : `${count} files`);
 
-const lineStats = (file: OpenShellSandboxChanges["files"][number]) =>
-  file.additions === null ? "binary" : `+${file.additions} -${file.deletions}`;
+const blockedFiles = (count: number) =>
+  count === 1 ? "1 file access blocked" : `${count} file accesses blocked`;
+
+const parseSandboxDiff = (diff: string) => {
+  try {
+    return parsePatchFiles(diff).flatMap(({ files }) => files);
+  } catch {
+    return null;
+  }
+};
+
+/** Falls back to the raw patch because a binary hunk can defeat the parser. */
+function SandboxDiff(props: { readonly diff: string }) {
+  const appearance = useRenderedAppearance();
+  const files = parseSandboxDiff(props.diff);
+  if (files === null) {
+    return (
+      <pre className="overflow-auto rounded-md bg-muted p-3 font-mono text-xs">{props.diff}</pre>
+    );
+  }
+  return (
+    <DiffWorkerPoolProvider>
+      <div className="space-y-3">
+        {files.map((file) => (
+          <div key={file.name} className="overflow-hidden rounded-md border border-border/60">
+            <FileDiff
+              fileDiff={file}
+              options={{
+                diffStyle: "unified",
+                lineDiffType: "word",
+                overflow: "wrap",
+                theme: resolveDiffThemeName(appearance),
+                themeType: appearance,
+                preferredHighlighter: PREFERRED_HIGHLIGHTER,
+                unsafeCSS: DIFF_VIEW_UNSAFE_CSS,
+              }}
+            />
+          </div>
+        ))}
+      </div>
+    </DiffWorkerPoolProvider>
+  );
+}
 
 function SandboxChangesReview(props: {
   readonly changes: OpenShellSandboxChanges;
@@ -41,23 +89,11 @@ function SandboxChangesReview(props: {
         Review
       </Button>
       <Dialog open={open} onOpenChange={setOpen} disablePointerDismissal>
-        <DialogPopup className="max-w-3xl">
+        <DialogPopup className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Changes in {props.changes.sandbox}</DialogTitle>
+            <DialogTitle>{fileCount(props.changes.files.length)} changed</DialogTitle>
           </DialogHeader>
-          <DialogPanel>
-            <ul className="mb-3 space-y-1 text-sm">
-              {props.changes.files.map((file) => (
-                <li key={file.path} className="flex justify-between gap-4">
-                  <span className="min-w-0 truncate font-mono">{file.path}</span>
-                  <span className="shrink-0 text-muted-foreground">{lineStats(file)}</span>
-                </li>
-              ))}
-            </ul>
-            <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 font-mono text-xs">
-              {props.changes.diff}
-            </pre>
-          </DialogPanel>
+          <DialogPanel>{open ? <SandboxDiff diff={props.changes.diff} /> : null}</DialogPanel>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)}>
               Close
@@ -102,6 +138,12 @@ export function useSandboxChangesBanner(input: {
       : orchestrationEnvironment.sandboxChanges({ environmentId, input: { threadId } }),
   );
   const { refresh } = query;
+  const requestsQuery = useEnvironmentQuery(
+    threadId === null
+      ? null
+      : orchestrationEnvironment.sandboxRequests({ environmentId, input: { threadId } }),
+  );
+  const refreshRequests = requestsQuery.refresh;
   const apply = useAtomCommand(orchestrationEnvironment.applySandboxChanges);
   const updateGuard = useAtomCommand(orchestrationEnvironment.updateSandboxGuard);
   const [applying, setApplying] = useState(false);
@@ -132,7 +174,7 @@ export function useSandboxChangesBanner(input: {
     return true;
   };
 
-  const request = changes.requests[0];
+  const request = requestsQuery.data?.requests[0];
   const label = changes.template ?? "Sandbox";
 
   const resolveRequest = async (approved: boolean) => {
@@ -142,7 +184,15 @@ export function useSandboxChangesBanner(input: {
       environmentId,
       input: {
         threadId,
-        change: { type: approved ? "approve" : "reject", chunkId: request.chunkId },
+        change: approved
+          ? { type: "allow", host: request.host, port: request.port, binary: request.binary }
+          : {
+              type: "deny",
+              host: request.host,
+              port: request.port,
+              binary: request.binary,
+              chunkId: request.chunkId,
+            },
       },
     });
     setResolving(false);
@@ -159,14 +209,17 @@ export function useSandboxChangesBanner(input: {
     toastManager.add({
       type: "success",
       title: approved
-        ? `Allowed ${request.host}:${request.port}, active within 20 seconds`
+        ? `Allowed ${request.host}:${request.port}, active now`
         : `Denied ${request.host}:${request.port}`,
     });
-    refresh();
+    refreshRequests();
   };
 
-  const changedTitle =
-    changes.files.length === 0 ? label : `${label}: ${fileCount(changes.files.length)} changed`;
+  const summary = [
+    changes.files.length === 0 ? null : `${fileCount(changes.files.length)} changed`,
+    changes.blockedFileCount === 0 ? null : blockedFiles(changes.blockedFileCount),
+  ].filter((part) => part !== null);
+  const changedTitle = [label, summary.join(", ")].filter(Boolean).join(": ");
   const programName = request?.binary.split("/").at(-1);
 
   return {
@@ -188,7 +241,7 @@ export function useSandboxChangesBanner(input: {
               Deny
             </Button>
             <Button size="xs" disabled={resolving} onClick={() => void resolveRequest(true)}>
-              Allow
+              {resolving ? "Allowing" : "Allow"}
             </Button>
           </>
         )}
