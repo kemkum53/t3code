@@ -296,6 +296,7 @@ import {
   readGuard,
   readOverview,
   removeEndpoint,
+  updateSandboxImage,
   saveCredential,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellGuard.ts";
 import {
@@ -1605,16 +1606,35 @@ export const layerWsRpc = (
           readGuard(target, fileDenials, platform),
         );
       });
+      const openShellErrorDetail = <A>(call: () => Promise<A>) =>
+        Effect.tryPromise({
+          try: call,
+          catch: (cause) =>
+            new OpenShellSandboxChangesError({ message: setupFailureMessage(cause), cause }),
+        });
       const readThreadRequests = Effect.fn("ws.readThreadRequests")(function* (threadId: ThreadId) {
         const sandbox = yield* threadSandbox(threadId);
         if (sandbox === undefined) {
-          return { sandboxed: false, phase: null, requests: [], fileRequests: [] };
+          return {
+            sandboxed: false,
+            phase: null,
+            updateAvailable: false,
+            requests: [],
+            fileRequests: [],
+          };
         }
         const platform = yield* HostProcess.Platform;
         const fileDenials = yield* readFileDenials(threadId);
         const access = yield* openShellCall("Failed to read access requests", () =>
           readAccessRequests(sandbox.target, fileDenials, platform),
-        ).pipe(Effect.orElseSucceed(() => ({ phase: null, requests: [], fileRequests: [] })));
+        ).pipe(
+          Effect.orElseSucceed(() => ({
+            phase: null,
+            updateAvailable: false,
+            requests: [],
+            fileRequests: [],
+          })),
+        );
         // A box that does not exist yet is on its way only while a session wants it.
         const phase = access.phase ?? (sandbox.sessionLive ? null : "Stopped");
         return { ...access, sandboxed: true, phase };
@@ -1625,6 +1645,15 @@ export const layerWsRpc = (
         const target = yield* requireThreadSandbox(input.threadId);
         const platform = yield* HostProcess.Platform;
         const { change } = input;
+        if (change.type === "updateImage") {
+          const { providerSessions } = yield* threadManagement.getThreadProjection(input.threadId);
+          if (providerSessions.at(-1)?.status === "running") {
+            return yield* new OpenShellSandboxChangesError({
+              message: "Wait for the current turn to finish before updating the sandbox",
+            });
+          }
+          return yield* openShellErrorDetail(() => updateSandboxImage(target, platform));
+        }
         yield* openShellCall("Failed to change sandbox", () => {
           switch (change.type) {
             case "allow":

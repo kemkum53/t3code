@@ -11,7 +11,9 @@ import type {
 import type { OpenShellProfile, OpenShellTarget } from "./ClaudeOpenShellSpawn.ts";
 import { DEFAULT_IMAGE_PATH, isSetupRunning, SETUP_STEP_FILE } from "./ClaudeOpenShellSetup.ts";
 import {
+  ensureSandbox,
   quoteForShell as quote,
+  recreateSandbox,
   resolveHostDistro,
   restartSandbox,
   runInLinux,
@@ -30,6 +32,7 @@ const FILE_DENIAL_WINDOW_MS = 30 * 60_000;
 const MAX_FILE_DENIALS = 10;
 const SECTION_MARKER = "__T3_SECTION__";
 const USER_RULE_PREFIX = "t3_user_";
+const PROVIDER_RULE_PREFIX = "_provider_";
 const DEFAULT_CREDENTIAL_PROVIDER = "claude-sub";
 const CREDENTIAL_PROFILE = "claude-subscription";
 const DENIAL_LOG_WINDOW = "30m";
@@ -226,6 +229,18 @@ const parseActivePolicy = (output: string) =>
     }
   ).policy;
 
+/** Provider rules come from the gateway, and it refuses a policy that spells them out. */
+export const withoutProviderRules = <T extends ReturnType<typeof parseActivePolicy>>(
+  policy: T,
+): T => ({
+  ...policy,
+  network_policies: Object.fromEntries(
+    Object.entries(policy.network_policies ?? {}).filter(
+      ([name]) => !name.startsWith(PROVIDER_RULE_PREFIX),
+    ),
+  ),
+});
+
 /** Polled every few seconds, so all three reads share one WSL process. */
 export const readAccessRequests = async (
   target: OpenShellTarget,
@@ -243,15 +258,20 @@ echo ${SECTION_MARKER}
 openshell rule get ${name} --status pending </dev/null
 echo ${SECTION_MARKER}
 openshell sandbox get ${name} -o json </dev/null
+echo ${SECTION_MARKER}
+stat -c %Y "${target.image}" 2>/dev/null
 exit 0`,
       platform,
     )
   ).toString("utf8");
-  const [logs = "", policy = "{}", pending = "", sandbox = "{}"] = output.split(SECTION_MARKER);
+  const [logs = "", policy = "{}", pending = "", sandbox = "{}", imageTime = ""] =
+    output.split(SECTION_MARKER);
+  const box = JSON.parse(sandbox) as { readonly phase?: string; readonly created_at?: string };
   const active = parseActivePolicy(policy);
   const files = active.filesystem_policy;
   return {
-    phase: (JSON.parse(sandbox) as { readonly phase?: string }).phase ?? null,
+    phase: box.phase ?? null,
+    updateAvailable: isImageNewer(imageTime, box.created_at),
     requests: mergeAccessRequests(
       target.sandbox,
       parseDenials(logs),
@@ -265,6 +285,30 @@ exit 0`,
   };
 };
 
+/** A rebuilt image reaches only new boxes, so an older box can offer to move. */
+export const isImageNewer = (imageSeconds: string, createdAt: string | undefined): boolean => {
+  const image = Number(imageSeconds.trim()) * 1000;
+  if (createdAt === undefined || !Number.isFinite(image) || image === 0) return false;
+  return image > Date.parse(`${createdAt.replace(" ", "T")}Z`);
+};
+
+export const updateSandboxImage = async (
+  target: OpenShellTarget,
+  platform: NodeJS.Platform,
+): Promise<void> => {
+  await ensureSandbox(target, platform);
+  const policy = await openshell(
+    target,
+    `policy get ${quote(target.sandbox)} --full -o json`,
+    platform,
+  );
+  await recreateSandbox(
+    target,
+    JSON.stringify(withoutProviderRules(parseActivePolicy(policy))),
+    platform,
+  );
+};
+
 export const allowFilePath = async (
   target: OpenShellTarget,
   path: string,
@@ -272,8 +316,8 @@ export const allowFilePath = async (
 ): Promise<void> => {
   if (!PATH_PATTERN.test(path)) throw new Error(`Invalid path: ${path}`);
   const name = quote(target.sandbox);
-  const policy = parseActivePolicy(
-    await openshell(target, `policy get ${name} --full -o json`, platform),
+  const policy = withoutProviderRules(
+    parseActivePolicy(await openshell(target, `policy get ${name} --full -o json`, platform)),
   );
   const files = policy.filesystem_policy;
   const next = {
@@ -340,6 +384,7 @@ export const readGuard = async (
     denials: parseDenials(logs),
     requests: access.requests,
     fileRequests: access.fileRequests,
+    updateAvailable: access.updateAvailable,
     fileDenials,
     readOnlyPaths: active.filesystem_policy?.read_only ?? [],
     writablePaths: active.filesystem_policy?.read_write ?? [],

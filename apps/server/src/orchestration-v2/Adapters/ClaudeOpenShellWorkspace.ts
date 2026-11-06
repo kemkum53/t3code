@@ -93,6 +93,9 @@ const execInBox = (target: OpenShellTarget, script: string, platform: NodeJS.Pla
     platform,
   );
 
+const execInSandboxRoot = (target: OpenShellTarget, script: string, platform: NodeJS.Platform) =>
+  execInBox({ ...target, workdir: NodePath.posix.dirname(target.workdir) }, script, platform);
+
 const parseTrackedFiles = (listing: Buffer): ReadonlyArray<string> =>
   listing.toString("utf8").split("\0").filter(Boolean);
 
@@ -110,15 +113,21 @@ You have no root access, so apt cannot install anything here. Install tools unde
 When a path outside your limits is refused, the user sees a request to allow reading it. Approving restarts the box, so stop and let them answer. Write limits cannot be widened.
 `;
 
-/** Creates the thread's box on first use. Later turns find it running and move on. */
-const ensureSandbox = (target: OpenShellTarget, platform: NodeJS.Platform) => {
-  const name = quote(target.sandbox);
-  const create = [
-    `openshell sandbox create --name ${name} --no-tty --detach --from "${target.image}"`,
-    target.policy === undefined ? "" : `--policy "${target.policy}"`,
+const writeInstructionsScript = `cat > CLAUDE.md <<'T3_EOF'
+${SANDBOX_INSTRUCTIONS}T3_EOF`;
+
+const createCommand = (target: OpenShellTarget, policy: string | undefined) =>
+  [
+    `openshell sandbox create --name ${quote(target.sandbox)} --no-tty --detach --from "${target.image}"`,
+    policy === undefined ? "" : `--policy "${policy}"`,
     target.provider === undefined ? "" : `--provider ${quote(target.provider)}`,
     "-- sleep infinity </dev/null >/dev/null",
   ].join(" ");
+
+/** Creates the thread's box on first use. Later turns find it running and move on. */
+export const ensureSandbox = (target: OpenShellTarget, platform: NodeJS.Platform) => {
+  const name = quote(target.sandbox);
+  const create = createCommand(target, target.policy);
   return runInLinux(
     target,
     `openshell sandbox get ${name} </dev/null >/dev/null 2>&1 || ${create}
@@ -135,6 +144,55 @@ echo "sandbox ${target.sandbox} did not become ready" >&2
 exit 1`,
     platform,
   );
+};
+
+/**
+ * A box keeps the image it started from, so a new image means a new box. Everything the chat owns
+ * lives under /sandbox. The backup stays on disk if anything fails after the old box is gone.
+ */
+export const recreateSandbox = async (
+  target: OpenShellTarget,
+  policy: string,
+  platform: NodeJS.Platform,
+): Promise<void> => {
+  const name = quote(target.sandbox);
+  const folder = `$HOME/.cache/t3-openshell/update-${target.sandbox}`;
+  const exec = `openshell sandbox exec --name ${name} --no-tty --timeout 0 --`;
+  const archive = "/tmp/t3-restore.tar";
+  await runInLinux(
+    target,
+    `set -eu
+DIR="${folder}"
+rm -rf "$DIR"
+mkdir -p "$DIR"
+cat >"$DIR/policy.json"
+${exec} sh -c 'cd /sandbox && tar -cf - .' </dev/null >"$DIR/sandbox.tar"
+tar -tf "$DIR/sandbox.tar" >"$DIR/entries"
+[ -s "$DIR/entries" ] || { echo "The sandbox backup is empty, nothing was changed." >&2; exit 1; }
+fail() { echo "Update stopped. The sandbox backup is in $DIR." >&2; exit 1; }
+trap fail EXIT
+openshell sandbox delete ${name} </dev/null >/dev/null
+i=0
+while openshell sandbox get ${name} </dev/null >/dev/null 2>&1; do
+  i=$((i + 1))
+  [ "$i" -lt ${SANDBOX_READY_ATTEMPTS} ] || exit 1
+  sleep 1
+done
+${createCommand(target, "$DIR/policy.json")}
+i=0
+until openshell sandbox list </dev/null | grep -q "^${target.sandbox} .*Ready"; do
+  i=$((i + 1))
+  [ "$i" -lt ${SANDBOX_READY_ATTEMPTS} ] || exit 1
+  sleep 2
+done
+openshell sandbox upload ${name} "$DIR/sandbox.tar" ${archive} </dev/null >/dev/null
+${exec} sh -c 'tar -C /sandbox --no-overwrite-dir -xf ${archive} && rm -f ${archive}' </dev/null >/dev/null
+trap - EXIT
+rm -rf "$DIR"`,
+    platform,
+    Buffer.from(policy),
+  );
+  await execInSandboxRoot(target, writeInstructionsScript, platform);
 };
 
 /** Filesystem rules load only when the supervisor starts, so a new one needs this. */
@@ -188,21 +246,13 @@ export const stageProject = async (
   } else {
     await execInSandboxRoot(target, `mkdir -p ${quote(target.workdir)}`, platform);
   }
-  await execInSandboxRoot(
-    target,
-    `cat > CLAUDE.md <<'T3_EOF'
-${SANDBOX_INSTRUCTIONS}T3_EOF`,
-    platform,
-  );
+  await execInSandboxRoot(target, writeInstructionsScript, platform);
   await execInBox(
     target,
     `set -e; git init -q; git config core.autocrlf false; git config user.name T3; git config user.email t3@localhost; git add -A; git commit -q --allow-empty -m ${quote(BASELINE_MESSAGE)}`,
     platform,
   );
 };
-
-const execInSandboxRoot = (target: OpenShellTarget, script: string, platform: NodeJS.Platform) =>
-  execInBox({ ...target, workdir: NodePath.posix.dirname(target.workdir) }, script, platform);
 
 const isStaged = async (target: OpenShellTarget, platform: NodeJS.Platform) => {
   const result = await execInSandboxRoot(

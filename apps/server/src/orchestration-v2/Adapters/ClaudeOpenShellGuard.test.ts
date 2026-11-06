@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 
 import {
   assertSandboxName,
+  isImageNewer,
   mergeAccessRequests,
   parseAccessRequests,
   parseDenials,
@@ -10,6 +11,7 @@ import {
   parseHostChecks,
   parseRules,
   parseSandboxList,
+  withoutProviderRules,
 } from "./ClaudeOpenShellGuard.ts";
 
 describe("parseDenials", () => {
@@ -134,6 +136,33 @@ describe("parseFileDenials", () => {
       ),
       [],
     );
+  });
+});
+
+describe("withoutProviderRules", () => {
+  it("keeps the template's rules and the user's", () => {
+    const policy = withoutProviderRules({
+      network_policies: { claude_api: {}, t3_user_curl: {}, _provider_claude_sub: {} },
+    });
+    assert.deepStrictEqual(Object.keys(policy.network_policies ?? {}), [
+      "claude_api",
+      "t3_user_curl",
+    ]);
+  });
+});
+
+describe("isImageNewer", () => {
+  const seconds = (value: string) => String(Date.parse(value) / 1000);
+
+  it("compares the image with the box's UTC creation time", () => {
+    const created = "2026-11-06 08:00:00";
+    assert.isTrue(isImageNewer(seconds("2026-11-06T09:00:00Z"), created));
+    assert.isFalse(isImageNewer(seconds("2026-11-06T07:00:00Z"), created));
+  });
+
+  it("offers nothing when either time is missing", () => {
+    assert.isFalse(isImageNewer("", "2026-11-06 08:00:00"));
+    assert.isFalse(isImageNewer("1793950000", undefined));
   });
 });
 

@@ -32,6 +32,7 @@ export type OpenShellFileRequest = typeof OpenShellFileRequest.Type;
 export const OpenShellSandboxRequests = Schema.Struct({
   sandboxed: Schema.Boolean,
   phase: Schema.NullOr(TrimmedNonEmptyString),
+  updateAvailable: Schema.Boolean,
   requests: Schema.Array(OpenShellAccessRequest),
   fileRequests: Schema.Array(OpenShellFileRequest),
 });
@@ -82,6 +83,7 @@ export const OpenShellSandboxGuard = Schema.Struct({
   denials: Schema.Array(OpenShellDenial),
   requests: Schema.Array(OpenShellAccessRequest),
   fileRequests: Schema.Array(OpenShellFileRequest),
+  updateAvailable: Schema.Boolean,
   fileDenials: Schema.Array(OpenShellFileDenial),
   readOnlyPaths: Schema.Array(Schema.String),
   writablePaths: Schema.Array(Schema.String),
@@ -109,6 +111,7 @@ export const OpenShellSandboxGuardChange = Schema.Union([
   }),
   Schema.Struct({ type: Schema.Literal("allowPath"), path: TrimmedNonEmptyString }),
   Schema.Struct({ type: Schema.Literal("denyPath"), path: TrimmedNonEmptyString }),
+  Schema.Struct({ type: Schema.Literal("updateImage") }),
   Schema.Struct({ type: Schema.Literal("stop") }),
   Schema.Struct({ type: Schema.Literal("start") }),
 ]);

@@ -271,6 +271,7 @@ export function useSandboxChangesBanner(input: {
   const summary = [
     changes.files.length === 0 ? null : `${fileCount(changes.files.length)} changed`,
     changes.blockedFileCount === 0 ? null : blockedFiles(changes.blockedFileCount),
+    access?.updateAvailable ? "update available" : null,
   ].filter((part) => part !== null);
   const stateLabel =
     boxState === "starting" ? "starting" : boxState === "stopped" ? "stopped" : null;
@@ -325,7 +326,11 @@ export function useSandboxChangesBanner(input: {
             </Button>
           </>
         )}
-        <SandboxGuardButton environmentId={environmentId} threadId={threadId} />
+        <SandboxGuardButton
+          environmentId={environmentId}
+          threadId={threadId}
+          agentRunning={phase === "running"}
+        />
         {changes.files.length === 0 ? null : (
           <SandboxChangesReview
             changes={changes}

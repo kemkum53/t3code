@@ -82,6 +82,11 @@ packages therefore go into the image. A rebuilt image reaches new boxes only.
 | Box made before the rebuild          | Keeps its old image            |
 | Allow a path, including restart      | 42 s, files in `/sandbox` kept |
 
+An open chat moves to a rebuilt image by replacing its box: `/sandbox` is copied to the Linux
+filesystem, the box is recreated under the same name with the active policy, and the copy is
+restored. Measured at 37 s with files, git history, rules and allowed paths kept. Rules named
+`_provider_*` must be left out, because the gateway adds them itself and refuses a policy with them.
+
 ## Distribution
 
 T3 Code has no plugin system and upstream does not take large features, so this ships as a fork with

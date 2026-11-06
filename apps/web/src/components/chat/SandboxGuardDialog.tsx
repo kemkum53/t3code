@@ -41,6 +41,8 @@ const changeNotice = (change: OpenShellSandboxGuardChange) => {
       return `Sandbox restarted with read access to ${change.path}`;
     case "denyPath":
       return `Denied read access to ${change.path}`;
+    case "updateImage":
+      return "Sandbox moved to the new image, files and rules kept";
     case "stop":
       return "Sandbox stopped, its files stay on disk";
     case "start":
@@ -97,6 +99,7 @@ function DenialRow(props: {
 function GuardContent(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  readonly agentRunning: boolean;
   readonly onClose: () => void;
 }) {
   const { environmentId, threadId } = props;
@@ -314,6 +317,14 @@ function GuardContent(props: {
         )}
       </DialogPanel>
       <DialogFooter>
+        {guard?.updateAvailable ? (
+          <Button
+            disabled={busy || props.agentRunning}
+            onClick={() => void apply({ type: "updateImage" })}
+          >
+            {busy ? "Updating" : "Update to new image"}
+          </Button>
+        ) : null}
         {guard ? (
           <Button
             variant="ghost"
@@ -335,6 +346,7 @@ function GuardContent(props: {
 export function SandboxGuardButton(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  readonly agentRunning: boolean;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -348,6 +360,7 @@ export function SandboxGuardButton(props: {
             <GuardContent
               environmentId={props.environmentId}
               threadId={props.threadId}
+              agentRunning={props.agentRunning}
               onClose={() => setOpen(false)}
             />
           ) : null}
