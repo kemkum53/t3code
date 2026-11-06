@@ -1,4 +1,5 @@
 import type {
+  OpenShellAccessRequest,
   OpenShellDenial,
   OpenShellGuardRule,
   OpenShellOverview,
@@ -11,6 +12,7 @@ import { quoteForShell as quote, runInLinux } from "./ClaudeOpenShellWorkspace.t
 const HOST_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9.-]*$/;
 const BINARY_PATTERN = /^\/[\w./+-]+$/;
 const SANDBOX_PATTERN = /^t3-[a-z0-9]+$/;
+const CHUNK_PATTERN = /^[0-9a-f-]{36}$/;
 const USER_RULE_PREFIX = "t3_user_";
 const DEFAULT_CREDENTIAL_PROVIDER = "claude-sub";
 const CREDENTIAL_PROFILE = "claude-subscription";
@@ -57,6 +59,30 @@ export const parseDenials = (logs: string): ReadonlyArray<OpenShellDenial> => {
   return [...counts.values()];
 };
 
+/** The CLI has no JSON form for rules, so requests are read from its labelled text. */
+export const parseAccessRequests = (output: string): ReadonlyArray<OpenShellAccessRequest> =>
+  output
+    .split(/^\s*Chunk:\s*/m)
+    .slice(1)
+    .flatMap((block) => {
+      const field = (label: string) =>
+        new RegExp(`^\\s*${label}:\\s*(.+)$`, "m").exec(block)?.[1]?.trim() ?? "";
+      const chunkId = block.split("\n")[0]?.trim() ?? "";
+      const target = /^([^:\s]+):(\d+)/.exec(field("Endpoints"));
+      if (field("Status") !== "pending" || target === null) return [];
+      const [, host = "", port = "0"] = target;
+      if (EXPECTED_DENIALS.test(host)) return [];
+      return [
+        {
+          chunkId,
+          binary: field("Binary"),
+          host,
+          port: Number(port),
+          prover: field("Prover").replace(/^prover:\s*/, ""),
+        },
+      ];
+    });
+
 export const parseRules = (
   policies: Readonly<Record<string, PolicyRule>>,
 ): ReadonlyArray<OpenShellGuardRule> =>
@@ -91,12 +117,35 @@ const openshell = async (
 ): Promise<string> =>
   (await runInLinux(target, `exec openshell ${command} </dev/null`, platform)).toString("utf8");
 
+export const readAccessRequests = async (target: OpenShellTarget, platform: NodeJS.Platform) =>
+  parseAccessRequests(
+    await openshell(target, `rule get ${quote(target.sandbox)} --status pending`, platform),
+  );
+
+export const resolveAccessRequest = async (
+  target: OpenShellTarget,
+  chunkId: string,
+  approved: boolean,
+  platform: NodeJS.Platform,
+): Promise<void> => {
+  if (!CHUNK_PATTERN.test(chunkId)) throw new Error(`Invalid request id: ${chunkId}`);
+  const name = quote(target.sandbox);
+  await openshell(
+    target,
+    approved
+      ? `rule approve ${name} --chunk-id ${quote(chunkId)}`
+      : `rule reject ${name} --chunk-id ${quote(chunkId)} --reason ${quote("Denied by the user")}`,
+    platform,
+  );
+};
+
 export const readGuard = async (target: OpenShellTarget, platform: NodeJS.Platform) => {
   const name = quote(target.sandbox);
-  const [sandbox, policy, logs] = await Promise.all([
+  const [sandbox, policy, logs, requests] = await Promise.all([
     openshell(target, `sandbox get ${name} -o json`, platform),
     openshell(target, `policy get ${name} --full -o json`, platform),
     openshell(target, `logs ${name} --since ${DENIAL_LOG_WINDOW} -n 500`, platform),
+    readAccessRequests(target, platform),
   ]);
   const { phase } = JSON.parse(sandbox) as { readonly phase: string };
   const { policy: active } = JSON.parse(policy) as {
@@ -107,6 +156,7 @@ export const readGuard = async (target: OpenShellTarget, platform: NodeJS.Platfo
     phase,
     rules: parseRules(active.network_policies ?? {}),
     denials: parseDenials(logs),
+    requests,
   };
 };
 

@@ -286,9 +286,11 @@ import { requestUrl } from "./requestUrl.ts";
 import {
   allowEndpoint,
   controlSandbox,
+  readAccessRequests,
   readGuard,
   readOverview,
   removeEndpoint,
+  resolveAccessRequest,
   saveCredential,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellGuard.ts";
 import {
@@ -1596,6 +1598,14 @@ export const layerWsRpc = (
               return allowEndpoint(target, change, platform);
             case "remove":
               return removeEndpoint(target, change, platform);
+            case "approve":
+            case "reject":
+              return resolveAccessRequest(
+                target,
+                change.chunkId,
+                change.type === "approve",
+                platform,
+              );
             case "stop":
             case "start":
               return controlSandbox(target, change.type, platform);
@@ -1641,23 +1651,36 @@ export const layerWsRpc = (
       ) {
         const sandbox = yield* threadSandbox(threadId);
         if (sandbox === undefined) {
-          return { sandboxed: false, sandbox: null, workdir: null, files: [], diff: "" };
+          return {
+            sandboxed: false,
+            sandbox: null,
+            workdir: null,
+            template: null,
+            requests: [],
+            files: [],
+            diff: "",
+          };
         }
         const platform = yield* HostProcess.Platform;
-        const { files, patch } = yield* Effect.tryPromise({
-          try: () => readSandboxChanges(sandbox.target, platform),
-          catch: (cause) =>
-            new OpenShellSandboxChangesError({
-              message: "Failed to read sandbox changes",
-              cause,
-            }),
-        });
+        // A stopped box cannot answer, and the chat still needs the way to start it again.
+        const result = yield* openShellCall("Failed to read sandbox changes", () =>
+          Promise.all([
+            readSandboxChanges(sandbox.target, platform),
+            readAccessRequests(sandbox.target, platform),
+          ]),
+        ).pipe(Effect.option);
+        const [changes, requests] = Option.getOrElse(result, () => [
+          { files: [], patch: Buffer.alloc(0) },
+          [],
+        ]);
         return {
           sandboxed: true,
           sandbox: sandbox.target.sandbox,
           workdir: sandbox.target.workdir,
-          files,
-          diff: patch.toString("utf8"),
+          template: sandbox.template,
+          requests,
+          files: changes.files,
+          diff: changes.patch.toString("utf8"),
         };
       });
       const applyThreadSandboxChanges = Effect.fn("ws.applyThreadSandboxChanges")(function* (

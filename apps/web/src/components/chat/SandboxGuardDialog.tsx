@@ -35,6 +35,10 @@ const changeNotice = (change: OpenShellSandboxGuardChange) => {
       return `Allowed ${change.host}:${change.port} for ${change.binary}`;
     case "remove":
       return `Removed ${change.host}:${change.port} from the rules`;
+    case "approve":
+      return "Access approved, active within 20 seconds";
+    case "reject":
+      return "Access denied";
     case "stop":
       return "Sandbox stopped, its files stay on disk";
     case "start":
@@ -123,6 +127,10 @@ function GuardContent(props: {
 
   const guard = query.data;
   const running = guard?.phase === "Ready";
+  const pending = new Set(guard?.requests.map(({ host, port }) => `${host}:${port}`));
+  const blocked = (guard?.denials ?? []).filter(
+    ({ host, port }) => !pending.has(`${host}:${port}`),
+  );
   return (
     <>
       <DialogHeader>
@@ -134,11 +142,46 @@ function GuardContent(props: {
         ) : (
           <div className="space-y-4">
             <p className="text-sm">Status: {guard.phase}</p>
-            {guard.denials.length > 0 ? (
+            {guard.requests.length > 0 ? (
+              <section>
+                <h3 className="mb-1 text-sm font-medium">Access requests</h3>
+                <ul className="space-y-1">
+                  {guard.requests.map((request) => (
+                    <li
+                      key={request.chunkId}
+                      className="flex items-center justify-between gap-3 text-sm"
+                    >
+                      <span className="min-w-0 truncate font-mono">
+                        {request.host}:{request.port}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+                        {request.binary.split("/").at(-1)}
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => void apply({ type: "reject", chunkId: request.chunkId })}
+                        >
+                          Deny
+                        </Button>
+                        <Button
+                          size="xs"
+                          disabled={busy}
+                          onClick={() => void apply({ type: "approve", chunkId: request.chunkId })}
+                        >
+                          Allow
+                        </Button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+            {blocked.length > 0 ? (
               <section>
                 <h3 className="mb-1 text-sm font-medium">Blocked in the last 30 minutes</h3>
                 <ul className="space-y-1">
-                  {guard.denials.map((denial) => (
+                  {blocked.map((denial) => (
                     <DenialRow
                       key={`${denial.binary}:${denial.host}:${denial.port}`}
                       denial={denial}

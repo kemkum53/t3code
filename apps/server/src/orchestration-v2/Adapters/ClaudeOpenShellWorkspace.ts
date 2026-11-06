@@ -81,6 +81,16 @@ const parseTrackedFiles = (listing: Buffer): ReadonlyArray<string> =>
 
 const SANDBOX_READY_ATTEMPTS = 90;
 
+/** Sits above the workdir, so Claude reads it while it stays out of the project's diff. */
+const SANDBOX_INSTRUCTIONS = `# Sandbox
+
+You run inside an OpenShell sandbox. Your changes stay in this box until the user applies them.
+
+Network access is denied by default. When a command fails because a host is unreachable, do not look for a workaround. Tell the user which host you need and why, then stop and wait. The blocked attempt already reached the user as an access request. After they approve it, the rule can take up to 20 seconds to load, so retry after that.
+
+Filesystem limits cannot change while the box runs. If you need one changed, tell the user what you need and why.
+`;
+
 /** Creates the thread's box on first use. Later turns find it running and move on. */
 const ensureSandbox = (target: OpenShellTarget, platform: NodeJS.Platform) => {
   const name = quote(target.sandbox);
@@ -140,6 +150,12 @@ export const stageProject = async (
   } else {
     await execInSandboxRoot(target, `mkdir -p ${quote(target.workdir)}`, platform);
   }
+  await execInSandboxRoot(
+    target,
+    `cat > CLAUDE.md <<'T3_EOF'
+${SANDBOX_INSTRUCTIONS}T3_EOF`,
+    platform,
+  );
   await execInBox(
     target,
     `set -e; git init -q; git config core.autocrlf false; git config user.name T3; git config user.email t3@localhost; git add -A; git commit -q --allow-empty -m ${quote(BASELINE_MESSAGE)}`,

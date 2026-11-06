@@ -1,4 +1,3 @@
-import { ShieldCheckIcon } from "lucide-react";
 import { type CSSProperties, memo } from "react";
 
 import {
@@ -65,7 +64,6 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   acpRegistryAgentId?: string | undefined;
   acpRegistryIconUrl?: string | undefined;
   showBadge?: boolean;
-  sandboxed?: boolean | undefined;
   badgeContent?: "initials" | "none";
   size?: "default" | "compact";
   className?: string;
@@ -120,14 +118,7 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
           {providerInstanceInitials(props.displayName)}
         </span>
       )}
-      {props.sandboxed ? (
-        <span
-          className="pointer-events-none absolute right-[-0.25rem] bottom-[-0.25rem] z-10 flex size-3.5 items-center justify-center rounded-full bg-success text-success-foreground"
-          aria-label="Runs in an OpenShell sandbox"
-        >
-          <ShieldCheckIcon className="size-2.5" aria-hidden />
-        </span>
-      ) : props.showBadge ? (
+      {props.showBadge ? (
         <span
           className={cn(
             "pointer-events-none absolute right-0 bottom-0 z-10 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border px-0.5 text-4xs font-semibold leading-none shadow-sm",

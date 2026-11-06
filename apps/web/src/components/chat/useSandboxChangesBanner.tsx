@@ -100,7 +100,9 @@ export function useSandboxChangesBanner(input: {
   );
   const { refresh } = query;
   const apply = useAtomCommand(orchestrationEnvironment.applySandboxChanges);
+  const updateGuard = useAtomCommand(orchestrationEnvironment.updateSandboxGuard);
   const [applying, setApplying] = useState(false);
+  const [resolving, setResolving] = useState(false);
 
   const changes = query.data;
   if (threadId === null || changes === null || !changes.sandboxed) return null;
@@ -127,16 +129,66 @@ export function useSandboxChangesBanner(input: {
     return true;
   };
 
+  const request = changes.requests[0];
+  const label = changes.template ?? "Sandbox";
+
+  const resolveRequest = async (approved: boolean) => {
+    if (request === undefined) return;
+    setResolving(true);
+    const result = await updateGuard({
+      environmentId,
+      input: {
+        threadId,
+        change: { type: approved ? "approve" : "reject", chunkId: request.chunkId },
+      },
+    });
+    setResolving(false);
+    if (result._tag === "Failure") {
+      if (isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add({
+        type: "error",
+        title: "Access request was not answered",
+        description: error instanceof Error ? error.message : undefined,
+      });
+      return;
+    }
+    toastManager.add({
+      type: "success",
+      title: approved
+        ? `Allowed ${request.host}:${request.port}, active within 20 seconds`
+        : `Denied ${request.host}:${request.port}`,
+    });
+    refresh();
+  };
+
+  const changedTitle =
+    changes.files.length === 0 ? label : `${label}: ${fileCount(changes.files.length)} changed`;
+  const programName = request?.binary.split("/").at(-1);
+
   return {
     id: "sandbox-changes",
-    variant: "info",
+    variant: request === undefined ? "info" : "warning",
     icon: <BoxIcon />,
     title:
-      changes.files.length === 0
-        ? "Sandbox"
-        : `${fileCount(changes.files.length)} changed in the sandbox`,
+      request === undefined ? changedTitle : `${programName} wants ${request.host}:${request.port}`,
     actions: (
       <>
+        {request === undefined ? null : (
+          <>
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={resolving}
+              onClick={() => void resolveRequest(false)}
+            >
+              Deny
+            </Button>
+            <Button size="xs" disabled={resolving} onClick={() => void resolveRequest(true)}>
+              Allow
+            </Button>
+          </>
+        )}
         <SandboxGuardButton environmentId={environmentId} threadId={threadId} />
         {changes.files.length === 0 ? null : (
           <SandboxChangesReview

@@ -13,6 +13,7 @@ type ProviderInstances = ServerSettings["providerInstances"];
 export interface ThreadSandbox {
   readonly target: OpenShellTarget;
   readonly hostCwd: string;
+  readonly template: string | null;
 }
 
 const instanceProfile = (
@@ -37,10 +38,15 @@ export const resolveThreadSandbox = (
 ): ThreadSandbox | undefined => {
   const session = projection.providerSessions.at(-1);
   if (session === undefined) return undefined;
-  const profile = instanceProfile(instances[session.providerInstanceId]);
+  const instance = instances[session.providerInstanceId];
+  const profile = instanceProfile(instance);
   return profile === undefined
     ? undefined
-    : { target: targetForThread(profile, threadId), hostCwd: session.cwd };
+    : {
+        target: targetForThread(profile, threadId),
+        hostCwd: session.cwd,
+        template: instance?.displayName ?? null,
+      };
 };
 
 /** A box path carries its sandbox's name, so it needs no thread to find the right box. */

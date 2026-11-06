@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 
 import {
   assertSandboxName,
+  parseAccessRequests,
   parseDenials,
   parseHostChecks,
   parseRules,
@@ -71,5 +72,38 @@ describe("assertSandboxName", () => {
     assert.strictEqual(assertSandboxName("t3-abc123"), "t3-abc123");
     assert.throws(() => assertSandboxName("t3-abc; rm -rf /"));
     assert.throws(() => assertSandboxName("homeassistant"));
+  });
+});
+
+describe("parseAccessRequests", () => {
+  it("reads pending requests and skips telemetry", () => {
+    const output = [
+      "Network Rules:  (version 1, 2 chunks)",
+      "",
+      "  Chunk: 306ef510-4483-42a0-9c77-6a3ddf2827ea",
+      "  Status: pending",
+      "  Rule: allow_example_com_443",
+      "  Binary: /usr/bin/curl",
+      "  Prover: prover: no new findings",
+      "  Endpoints: example.com:443 [L4]",
+      "",
+      "  Chunk: 406ef510-4483-42a0-9c77-6a3ddf2827ea",
+      "  Status: pending",
+      "  Binary: /usr/local/bin/claude",
+      "  Endpoints: http-intake.logs.us5.datadoghq.com:443 [L4]",
+    ].join("\n");
+    assert.deepStrictEqual(parseAccessRequests(output), [
+      {
+        chunkId: "306ef510-4483-42a0-9c77-6a3ddf2827ea",
+        binary: "/usr/bin/curl",
+        host: "example.com",
+        port: 443,
+        prover: "no new findings",
+      },
+    ]);
+  });
+
+  it("returns nothing when no rule is pending", () => {
+    assert.deepStrictEqual(parseAccessRequests("No network rules for sandbox 'x'"), []);
   });
 });
