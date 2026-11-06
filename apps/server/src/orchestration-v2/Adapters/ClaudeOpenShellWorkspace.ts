@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeChildProcess from "node:child_process";
+import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
 import type { OpenShellTarget } from "./ClaudeOpenShellSpawn.ts";
@@ -206,6 +207,20 @@ rm -rf "$DIR"`,
     Buffer.from(policy),
   );
   await execInSandboxRoot(target, writeInstructionsScript, platform);
+};
+
+export const sandboxCopyFolder = (home: string, target: OpenShellTarget) =>
+  NodePath.join(home, "Downloads", target.sandbox);
+
+/** A chat without a project has no other way out of its box, and deleting the chat ends it. */
+export const copySandboxFiles = async (
+  target: OpenShellTarget,
+  destination: string,
+  platform: NodeJS.Platform,
+): Promise<void> => {
+  const archive = await execInBox(target, "tar --exclude=./.git -cf - .", platform);
+  await NodeFSP.mkdir(destination, { recursive: true });
+  await run("tar", ["-xf", "-", "-C", destination], archive);
 };
 
 /** Filesystem rules load only when the supervisor starts, so a new one needs this. */

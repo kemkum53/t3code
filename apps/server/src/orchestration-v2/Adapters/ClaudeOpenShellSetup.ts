@@ -22,6 +22,11 @@ const TEMPLATE_NAME_PREFIX = "OpenShell";
 const IMAGE_ENV = "T3_OPENSHELL_IMAGE";
 const POLICY_ENV = "T3_OPENSHELL_POLICY";
 const PACKAGES_ENV = "T3_OPENSHELL_PACKAGES";
+const HOSTS_ENV = "T3_OPENSHELL_HOSTS";
+const TEMPLATE_POLICY_FOLDER = `${SETUP_ROOT}/policies`;
+const DEVELOPER_HOSTS = "github.com registry.npmjs.org pypi.org files.pythonhosted.org";
+const HOST_ENTRY_PATTERN = /^[a-zA-Z0-9*][a-zA-Z0-9.*-]*(:\d{1,5})?$/;
+const DEFAULT_HOST_PORT = 443;
 
 const STRICT_POLICY_PATH = `${SETUP_ROOT}/policy.yaml`;
 const DEV_POLICY_PATH = `${SETUP_ROOT}/policy-dev.yaml`;
@@ -173,7 +178,7 @@ as_root true || die "The sudo password was refused."
 [ -r /dev/kvm ] || [ -e /dev/kvm ] || die "/dev/kvm is missing, so this machine cannot run MicroVMs."
 curl -fsS -m 20 -o /dev/null https://github.com || die "Linux has no internet access. Fix its network and try again."
 FREE_GB=$(df -BG --output=avail "$HOME" | tail -1 | tr -dc 0-9)
-[ "$FREE_GB" -ge 5 ] || die "Setup needs 5 GB of free disk, this machine has $FREE_GB GB."
+[ "$FREE_GB" -ge 3 ] || die "Setup needs 3 GB of free disk, this machine has $FREE_GB GB."
 case $(dpkg --print-architecture) in
   amd64)
     ARCH=amd64
@@ -259,7 +264,11 @@ const templateInstance = (
   policyPath: string,
   distro: string | undefined,
   binaryPath: string | undefined,
-  image: { readonly path: string; readonly packages?: string } = { path: DEFAULT_IMAGE_PATH },
+  image: {
+    readonly path: string;
+    readonly packages?: string;
+    readonly hosts?: string;
+  } = { path: DEFAULT_IMAGE_PATH },
 ): ProviderInstanceConfig => ({
   driver: ProviderDriverKind.make("claudeAgent"),
   displayName,
@@ -270,6 +279,9 @@ const templateInstance = (
     ...(image.packages === undefined
       ? []
       : [{ name: PACKAGES_ENV, value: image.packages, sensitive: false }]),
+    ...(image.hosts === undefined
+      ? []
+      : [{ name: HOSTS_ENV, value: image.hosts, sensitive: false }]),
     { name: "T3_OPENSHELL_PROVIDER", value: CREDENTIAL_PROVIDER, sensitive: false },
     ...(distro === undefined
       ? []
@@ -289,8 +301,40 @@ const environmentValue = (instance: ProviderInstanceConfig, name: string) => {
   return typeof value === "string" ? value : undefined;
 };
 
-const policyPathFor = (network: OpenShellTemplate["network"]) =>
-  network === "developer" ? DEV_POLICY_PATH : STRICT_POLICY_PATH;
+const templatePolicyPath = (id: string) => `${TEMPLATE_POLICY_FOLDER}/${id}.yaml`;
+
+/** Hosts reach every program in the box except Claude, which keeps its own single rule. */
+export const templatePolicy = (hosts: string): string => {
+  const entries = hosts.split(/\s+/).filter(Boolean);
+  const invalid = entries.find((entry) => !HOST_ENTRY_PATTERN.test(entry));
+  if (invalid !== undefined) throw new Error(`Invalid host: ${invalid}`);
+  if (entries.length === 0) return STRICT_POLICY;
+  const endpoints = entries.map((entry) => {
+    const [host, port = DEFAULT_HOST_PORT] = entry.split(":");
+    return `      - { host: "${host}", port: ${port} }`;
+  });
+  return `${STRICT_POLICY}  t3_user_hosts:
+    endpoints:
+${endpoints.join("\n")}
+    binaries:
+      - path: /usr/bin/*
+      - path: /usr/lib/git-core/*
+      - path: /sandbox/**
+`;
+};
+
+export const writeTemplatePolicy = (
+  wslDistro: string | undefined,
+  id: string,
+  hosts: string,
+  platform: NodeJS.Platform,
+) =>
+  runInLinux(
+    { wslDistro },
+    `mkdir -p "${TEMPLATE_POLICY_FOLDER}" && cat >"${templatePolicyPath(id)}"`,
+    platform,
+    Buffer.from(templatePolicy(hosts)),
+  );
 
 export const templateImagePath = (id: string) => `${TEMPLATE_IMAGE_FOLDER}/${id}.tar`;
 
@@ -322,30 +366,42 @@ export const newTemplate = (input: {
   readonly id: string;
   readonly name: string;
   readonly packages: string;
-  readonly network: OpenShellTemplate["network"];
+  readonly hosts: string;
   readonly distro: string | undefined;
   readonly binaryPath: string | undefined;
 }) =>
   templateInstance(
     templateDisplayName(input.name),
-    policyPathFor(input.network),
+    templatePolicyPath(input.id),
     input.distro,
     input.binaryPath,
-    { path: templateImagePath(input.id), packages: input.packages },
+    { path: templateImagePath(input.id), packages: input.packages, hosts: input.hosts },
   );
 
-export const withTemplateImage = (
+export const withTemplateChanges = (
   instance: ProviderInstanceConfig,
-  id: string,
-  packages: string,
+  input: {
+    readonly id: string;
+    readonly packages: string;
+    readonly hosts: string;
+    readonly rebuilt: boolean;
+  },
 ): ProviderInstanceConfig => ({
   ...instance,
   environment: [
     ...(instance.environment ?? []).filter(
-      ({ name }) => name !== IMAGE_ENV && name !== PACKAGES_ENV,
+      ({ name }) =>
+        name !== POLICY_ENV &&
+        name !== PACKAGES_ENV &&
+        name !== HOSTS_ENV &&
+        !(input.rebuilt && name === IMAGE_ENV),
     ),
-    { name: IMAGE_ENV, value: templateImagePath(id), sensitive: false },
-    { name: PACKAGES_ENV, value: packages, sensitive: false },
+    ...(input.rebuilt
+      ? [{ name: IMAGE_ENV, value: templateImagePath(input.id), sensitive: false }]
+      : []),
+    { name: POLICY_ENV, value: templatePolicyPath(input.id), sensitive: false },
+    { name: PACKAGES_ENV, value: input.packages, sensitive: false },
+    { name: HOSTS_ENV, value: input.hosts, sensitive: false },
   ],
 });
 
@@ -361,9 +417,11 @@ export const listTemplates = (
             id,
             name: instance.displayName ?? id,
             packages: environmentValue(instance, PACKAGES_ENV) ?? defaultPackages,
-            network: environmentValue(instance, POLICY_ENV)?.includes("policy-dev")
-              ? ("developer" as const)
-              : ("claude" as const),
+            hosts:
+              environmentValue(instance, HOSTS_ENV) ??
+              (environmentValue(instance, POLICY_ENV)?.includes("policy-dev")
+                ? DEVELOPER_HOSTS
+                : ""),
           },
         ],
   );

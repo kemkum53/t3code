@@ -176,15 +176,14 @@ interface SetupProps {
 }
 
 const TEMPLATE_PRESETS = [
-  { name: "Python", packages: "python3 python3-pip python3-venv" },
-  { name: "Node", packages: "nodejs npm" },
-  { name: "C++", packages: "build-essential cmake gdb" },
+  {
+    name: "Python",
+    packages: "python3 python3-pip python3-venv",
+    hosts: "pypi.org files.pythonhosted.org",
+  },
+  { name: "Node", packages: "nodejs npm", hosts: "registry.npmjs.org nodejs.org" },
+  { name: "C++", packages: "build-essential cmake gdb", hosts: "github.com" },
 ];
-
-const NETWORK_OPTIONS = [
-  { value: "developer", label: "GitHub, npm and PyPI" },
-  { value: "claude", label: "Claude only" },
-] as const;
 
 function useBuildCommand(
   props: SetupProps,
@@ -283,10 +282,14 @@ function TemplateRow(props: SetupProps & { readonly template: OpenShellTemplate 
   const save = useAtomCommand(orchestrationEnvironment.saveOpenShellTemplate);
   const remove = useAtomCommand(orchestrationEnvironment.deleteOpenShellTemplate);
   const [packages, setPackages] = useState(template.packages);
+  const [hosts, setHosts] = useState(template.hosts);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const rebuilds = packages.trim() !== template.packages;
   const build = useBuildCommand(props, {
-    success: `${template.name} rebuilt, open chats can update from Guard`,
-    failure: `${template.name} was not rebuilt`,
+    success: rebuilds
+      ? `${template.name} rebuilt, open chats can update from Guard`
+      : `${template.name} saved for new chats`,
+    failure: `${template.name} was not saved`,
   });
   const onDelete = async () => {
     const result = await remove({ environmentId, input: { id: template.id } });
@@ -300,52 +303,21 @@ function TemplateRow(props: SetupProps & { readonly template: OpenShellTemplate 
     toastManager.add({ type: "success", title: `Template ${template.name} deleted` });
     onChanged();
   };
-  const network = NETWORK_OPTIONS.find(({ value }) => value === template.network)?.label;
+  const changed = rebuilds || hosts.trim() !== template.hosts;
+  const formId = `openshell-template-${template.id}`;
   return (
     <SettingsRow
       title={template.name}
-      description={network}
       status={build.stepLabel}
       control={
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void build.run((sudoPassword) =>
-              save({
-                environmentId,
-                input: {
-                  id: template.id,
-                  name: template.name,
-                  packages: packages.trim(),
-                  network: template.network,
-                  sudoPassword,
-                },
-              }),
-            );
-          }}
-        >
-          <Input
-            aria-label={`Packages in ${template.name}`}
-            autoComplete="off"
-            className="w-72"
-            disabled={build.running}
-            value={packages}
-            onChange={(event) => setPackages(event.target.value)}
-          />
-          <PasswordInput
-            visible={overview.sudoNeedsPassword}
-            disabled={build.running}
-            value={build.password}
-            onChange={build.setPassword}
-          />
+        <span className="flex items-center gap-1">
           <Button
+            form={formId}
             type="submit"
             size="xs"
-            variant="ghost"
-            disabled={build.running || build.missingPassword}
+            disabled={build.running || (rebuilds && build.missingPassword) || !changed}
           >
-            {build.running ? "Building" : "Rebuild"}
+            {build.running ? "Saving" : rebuilds ? "Rebuild" : "Save"}
           </Button>
           {confirmingDelete ? (
             <>
@@ -372,9 +344,54 @@ function TemplateRow(props: SetupProps & { readonly template: OpenShellTemplate 
               Delete
             </Button>
           )}
-        </form>
+        </span>
       }
-    />
+    >
+      <form
+        id={formId}
+        className="mt-2 mb-2 flex flex-wrap items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void build.run((sudoPassword) =>
+            save({
+              environmentId,
+              input: {
+                id: template.id,
+                name: template.name,
+                packages: packages.trim(),
+                hosts: hosts.trim(),
+                sudoPassword,
+              },
+            }),
+          );
+        }}
+      >
+        <Input
+          aria-label={`Packages in ${template.name}`}
+          autoComplete="off"
+          className="min-w-48 flex-1"
+          disabled={build.running}
+          placeholder="apt packages"
+          value={packages}
+          onChange={(event) => setPackages(event.target.value)}
+        />
+        <Input
+          aria-label={`Allowed hosts in ${template.name}`}
+          autoComplete="off"
+          className="min-w-48 flex-1"
+          disabled={build.running}
+          placeholder="Claude only"
+          value={hosts}
+          onChange={(event) => setHosts(event.target.value)}
+        />
+        <PasswordInput
+          visible={overview.sudoNeedsPassword && rebuilds}
+          disabled={build.running}
+          value={build.password}
+          onChange={build.setPassword}
+        />
+      </form>
+    </SettingsRow>
   );
 }
 
@@ -383,12 +400,11 @@ function AddTemplateRow(props: SetupProps) {
   const save = useAtomCommand(orchestrationEnvironment.saveOpenShellTemplate);
   const [name, setName] = useState("");
   const [packages, setPackages] = useState("");
-  const [network, setNetwork] = useState<OpenShellTemplate["network"]>("developer");
+  const [hosts, setHosts] = useState("");
   const build = useBuildCommand(props, {
     success: `Template ${name.trim()} added, pick it in the model menu`,
     failure: "Template was not added",
   });
-  const networkLabel = NETWORK_OPTIONS.find(({ value }) => value === network)?.label;
   return (
     <SettingsRow
       title="Add template"
@@ -406,6 +422,7 @@ function AddTemplateRow(props: SetupProps) {
               onClick={() => {
                 setName(preset.name);
                 setPackages(preset.packages);
+                setHosts(preset.hosts);
               }}
             >
               {preset.name}
@@ -426,7 +443,7 @@ function AddTemplateRow(props: SetupProps) {
                   id: null,
                   name: name.trim(),
                   packages: packages.trim(),
-                  network,
+                  hosts: hosts.trim(),
                   sudoPassword,
                 },
               }),
@@ -435,6 +452,7 @@ function AddTemplateRow(props: SetupProps) {
               if (!saved) return;
               setName("");
               setPackages("");
+              setHosts("");
             });
         }}
       >
@@ -456,23 +474,15 @@ function AddTemplateRow(props: SetupProps) {
           value={packages}
           onChange={(event) => setPackages(event.target.value)}
         />
-        <Select
-          value={network}
-          onValueChange={(next) => {
-            if (next === "developer" || next === "claude") setNetwork(next);
-          }}
-        >
-          <SelectTrigger aria-label="Template network" className="w-48" size="sm">
-            <SelectValue>{networkLabel}</SelectValue>
-          </SelectTrigger>
-          <SelectPopup align="end" alignItemWithTrigger={false}>
-            {NETWORK_OPTIONS.map(({ value, label }) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
+        <Input
+          aria-label="Template hosts"
+          autoComplete="off"
+          className="min-w-48 flex-1"
+          disabled={build.running}
+          placeholder="Allowed hosts"
+          value={hosts}
+          onChange={(event) => setHosts(event.target.value)}
+        />
         <PasswordInput
           visible={overview.sudoNeedsPassword}
           disabled={build.running}
@@ -618,7 +628,7 @@ function OpenShellOverviewContent(props: { readonly environmentId: EnvironmentId
         <SettingsSection title="Templates">
           {overview.templates.map((template) => (
             <TemplateRow
-              key={`${template.id}:${template.packages}`}
+              key={`${template.id}:${template.packages}:${template.hosts}`}
               environmentId={environmentId}
               overview={overview}
               template={template}

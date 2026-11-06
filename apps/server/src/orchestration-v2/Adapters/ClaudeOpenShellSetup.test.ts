@@ -12,7 +12,8 @@ import {
   templateDisplayName,
   templateId,
   templateImagePath,
-  withTemplateImage,
+  templatePolicy,
+  withTemplateChanges,
 } from "./ClaudeOpenShellSetup.ts";
 import { parseDistroList } from "./ClaudeOpenShellWorkspace.ts";
 
@@ -66,7 +67,7 @@ describe("listTemplates", () => {
     id: "openshell_python",
     name: "Python",
     packages: "python3",
-    network: "developer",
+    hosts: "pypi.org",
     distro: undefined,
     binaryPath: undefined,
   });
@@ -79,7 +80,7 @@ describe("listTemplates", () => {
           id: "openshell_python",
           name: "OpenShell Python",
           packages: "python3",
-          network: "developer",
+          hosts: "pypi.org",
         },
       ],
     );
@@ -92,10 +93,32 @@ describe("listTemplates", () => {
 
   it("points a rebuilt template at its own image", () => {
     const [[, shared]] = setupTemplates(undefined, undefined);
-    const rebuilt = withTemplateImage(shared, "openshell", "nodejs");
+    const rebuilt = withTemplateChanges(shared, {
+      id: "openshell",
+      packages: "nodejs",
+      hosts: "",
+      rebuilt: true,
+    });
     const image = rebuilt.environment?.find(({ name }) => name === "T3_OPENSHELL_IMAGE");
     assert.strictEqual(image?.value, templateImagePath("openshell"));
     assert.isTrue(isTemplateImage(templateImagePath("openshell")));
+  });
+});
+
+describe("templatePolicy", () => {
+  it("adds the hosts for everything except Claude", () => {
+    const policy = templatePolicy("pypi.org example.com:8443");
+    assert.include(policy, '{ host: "pypi.org", port: 443 }');
+    assert.include(policy, '{ host: "example.com", port: 8443 }');
+    assert.notInclude(policy, "- path: /usr/local/bin/*");
+  });
+
+  it("keeps Claude only when there are no hosts", () => {
+    assert.notInclude(templatePolicy("  "), "t3_user_hosts");
+  });
+
+  it("refuses text that could break the file", () => {
+    assert.throws(() => templatePolicy('x.com" }'));
   });
 });
 

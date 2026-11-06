@@ -312,15 +312,18 @@ import {
   templateId,
   templateImage,
   templateImagePath,
-  withTemplateImage,
+  withTemplateChanges,
+  writeTemplatePolicy,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellSetup.ts";
 import {
   applySandboxChanges,
+  copySandboxFiles,
   listSandboxEntries,
   readSandboxChanges,
   readSandboxFile,
   resolveHostDistro,
   runInLinux,
+  sandboxCopyFolder,
 } from "./orchestration-v2/Adapters/ClaudeOpenShellWorkspace.ts";
 import {
   firstProfile,
@@ -1683,6 +1686,12 @@ export const layerWsRpc = (
           }
           return yield* openShellErrorDetail(() => updateSandboxImage(target, platform));
         }
+        if (change.type === "saveCopy") {
+          const home = yield* HostProcess.HomeDirectory;
+          return yield* openShellErrorDetail(() =>
+            copySandboxFiles(target, sandboxCopyFolder(home, target), platform),
+          );
+        }
         yield* openShellCall("Failed to change sandbox", () => {
           switch (change.type) {
             case "allow":
@@ -1774,14 +1783,21 @@ export const layerWsRpc = (
           });
         }
         const id = input.id ?? templateId(input.name, Object.keys(instances));
+        const known = listTemplates(instances, settings.openShellImagePackages).find(
+          (template) => template.id === input.id,
+        );
+        const rebuilt = known === undefined || known.packages !== input.packages;
         const distro = yield* openShellErrorDetail(async () => {
           const resolved = await resolveHostDistro(firstProfile(instances)?.wslDistro, platform);
-          await runSetup(
-            resolved,
-            input.sudoPassword,
-            { path: templateImagePath(id), packages: input.packages, rebuild: true },
-            platform,
-          );
+          await writeTemplatePolicy(resolved, id, input.hosts, platform);
+          if (rebuilt) {
+            await runSetup(
+              resolved,
+              input.sudoPassword,
+              { path: templateImagePath(id), packages: input.packages, rebuild: true },
+              platform,
+            );
+          }
           return resolved;
         });
         yield* serverSettings.updateProviderInstance({
@@ -1793,11 +1809,16 @@ export const layerWsRpc = (
                   id,
                   name: input.name,
                   packages: input.packages,
-                  network: input.network,
+                  hosts: input.hosts,
                   distro,
                   binaryPath: firstClaudeBinaryPath(instances),
                 })
-              : withTemplateImage(existing, id, input.packages),
+              : withTemplateChanges(existing, {
+                  id,
+                  packages: input.packages,
+                  hosts: input.hosts,
+                  rebuilt,
+                }),
         });
       });
       const deleteTemplate = Effect.fn("ws.deleteOpenShellTemplate")(function* (

@@ -41,6 +41,8 @@ const changeNotice = (change: OpenShellSandboxGuardChange) => {
       return `Sandbox restarted with read access to ${change.path}`;
     case "denyPath":
       return `Denied read access to ${change.path}`;
+    case "saveCopy":
+      return "Sandbox files copied to your Downloads folder";
     case "updateImage":
       return "Sandbox moved to the new image, files and rules kept";
     case "stop":
@@ -317,6 +319,15 @@ function GuardContent(props: {
         )}
       </DialogPanel>
       <DialogFooter>
+        {guard ? (
+          <Button
+            variant="ghost"
+            disabled={busy || !running}
+            onClick={() => void apply({ type: "saveCopy" })}
+          >
+            Save copy
+          </Button>
+        ) : null}
         {guard?.updateAvailable ? (
           <Button
             disabled={busy || props.agentRunning}

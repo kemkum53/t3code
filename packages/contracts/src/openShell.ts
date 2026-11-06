@@ -112,6 +112,7 @@ export const OpenShellSandboxGuardChange = Schema.Union([
   Schema.Struct({ type: Schema.Literal("allowPath"), path: TrimmedNonEmptyString }),
   Schema.Struct({ type: Schema.Literal("denyPath"), path: TrimmedNonEmptyString }),
   Schema.Struct({ type: Schema.Literal("updateImage") }),
+  Schema.Struct({ type: Schema.Literal("saveCopy") }),
   Schema.Struct({ type: Schema.Literal("stop") }),
   Schema.Struct({ type: Schema.Literal("start") }),
 ]);
@@ -134,7 +135,7 @@ export const OpenShellTemplate = Schema.Struct({
   id: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
   packages: Schema.String,
-  network: Schema.Literals(["claude", "developer"]),
+  hosts: Schema.String,
 });
 export type OpenShellTemplate = typeof OpenShellTemplate.Type;
 
@@ -166,7 +167,7 @@ export const OpenShellSaveTemplateInput = Schema.Struct({
   id: Schema.NullOr(TrimmedNonEmptyString),
   name: TrimmedNonEmptyString,
   packages: Schema.String,
-  network: OpenShellTemplate.fields.network,
+  hosts: Schema.String,
   sudoPassword: Schema.String,
 });
 export type OpenShellSaveTemplateInput = typeof OpenShellSaveTemplateInput.Type;
