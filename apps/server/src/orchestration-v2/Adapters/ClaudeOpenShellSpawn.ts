@@ -42,6 +42,12 @@ export const resolveOpenShellProfile = (
   };
 };
 
+/** Enough for the terminal manager to find the box without knowing about threads. */
+export const sandboxTerminalEnv = (profile: OpenShellProfile): Record<string, string> => ({
+  [IMAGE_ENV]: profile.image,
+  ...(profile.wslDistro === undefined ? {} : { [WSL_DISTRO_ENV]: profile.wslDistro }),
+});
+
 /** Every thread owns a box, and the name stays stable so a resumed thread finds it again. */
 export const targetForThread = (profile: OpenShellProfile, threadId: string): OpenShellTarget => {
   const sandbox = `t3-${threadId.replaceAll("-", "").slice(0, 12).toLowerCase()}`;

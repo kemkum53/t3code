@@ -328,6 +328,7 @@ import {
   resolveSandboxForPath,
   resolveThreadSandbox,
 } from "./orchestration-v2/OpenShellThreadSandbox.ts";
+import { sandboxTerminalEnv } from "./orchestration-v2/Adapters/ClaudeOpenShellSpawn.ts";
 
 const isOpenShellError = Schema.is(OpenShellSandboxChangesError);
 
@@ -1538,6 +1539,22 @@ export const layerWsRpc = (
       // A draft has no thread record until its first message, and the chat polls it anyway.
       const polledThreadSandbox = (threadId: ThreadId) =>
         threadSandbox(threadId).pipe(Effect.orElseSucceed(() => undefined));
+      const inSandboxTerminal = <A extends { readonly threadId: string; readonly env?: unknown }>(
+        input: A,
+      ) =>
+        polledThreadSandbox(input.threadId as ThreadId).pipe(
+          Effect.map((sandbox) =>
+            sandbox === undefined
+              ? input
+              : {
+                  ...input,
+                  env: {
+                    ...(input.env as Record<string, string> | undefined),
+                    ...sandboxTerminalEnv(sandbox.target),
+                  },
+                },
+          ),
+        );
       const sandboxForPath = (path: string) =>
         serverSettings.getSettings.pipe(
           Effect.option,
@@ -3608,9 +3625,16 @@ export const layerWsRpc = (
         [WS_METHODS.reviewGetBranchCommits]: (input) => review.getBranchCommits(input),
         [WS_METHODS.reviewGetDiffPreview]: (input) => review.getDiffPreview(input),
         [WS_METHODS.reviewGetDiffFileContents]: (input) => review.getDiffFileContents(input),
-        [WS_METHODS.terminalOpen]: (input) => terminalManager.open(input),
+        [WS_METHODS.terminalOpen]: (input) =>
+          inSandboxTerminal(input).pipe(Effect.flatMap((next) => terminalManager.open(next))),
         [WS_METHODS.terminalAttach]: (input, metadata) =>
-          terminalManager.attachOutputStream(input, terminalViewerId(metadata)),
+          Stream.unwrap(
+            inSandboxTerminal(input).pipe(
+              Effect.map((next) =>
+                terminalManager.attachOutputStream(next, terminalViewerId(metadata)),
+              ),
+            ),
+          ),
         [WS_METHODS.terminalWrite]: (input) => terminalManager.write(input),
         [WS_METHODS.terminalResize]: (input, metadata) =>
           terminalManager.resize(input, terminalViewerId(metadata)),

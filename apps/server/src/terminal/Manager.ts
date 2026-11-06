@@ -75,6 +75,8 @@ import * as PortScanner from "../preview/PortScanner.ts";
 import * as NativeTelemetryClient from "../resourceTelemetry/NativeTelemetryClient.ts";
 import { terminalOutputStream } from "./OutputProtocol.ts";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
+import { resolveOpenShellTarget } from "../orchestration-v2/Adapters/ClaudeOpenShellSpawn.ts";
+import { sandboxTerminalShell } from "../orchestration-v2/Adapters/ClaudeOpenShellWorkspace.ts";
 
 export {
   TerminalCwdError,
@@ -2436,7 +2438,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       increment(terminalSessionsTotal, { lifecycle: eventType }).pipe(
         Effect.andThen(
           Effect.gen(function* () {
-            const shellCandidates = resolveShellCandidates(shellResolver, platform, baseEnv);
+            const sandbox = resolveOpenShellTarget(
+              session.runtimeEnv ?? undefined,
+              session.threadId,
+            );
+            const shellCandidates =
+              sandbox === undefined
+                ? resolveShellCandidates(shellResolver, platform, baseEnv)
+                : [sandboxTerminalShell(sandbox, platform)];
             const terminalEnv = createTerminalSpawnEnv(
               baseEnv,
               session.runtimeEnv,

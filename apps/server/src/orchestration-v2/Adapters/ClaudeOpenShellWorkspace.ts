@@ -86,6 +86,19 @@ export const resolveHostDistro = async (
   return parseDistroList(await run("wsl.exe", ["-l", "-q"]).catch(() => Buffer.alloc(0)))[0];
 };
 
+/** A terminal in a sandboxed chat must not open on the host, so it starts the box if needed. */
+export const sandboxTerminalShell = (target: OpenShellTarget, platform: NodeJS.Platform) => {
+  const { sandbox, workdir } = target;
+  const { command, args } = linuxCommand(
+    target,
+    `openshell sandbox start ${sandbox} </dev/null >/dev/null 2>&1
+until openshell sandbox list </dev/null | grep -q ^${sandbox}.*Ready; do sleep 1; done
+exec openshell sandbox exec --name ${sandbox} --tty --timeout 0 --workdir ${workdir} -- bash`,
+    platform,
+  );
+  return { shell: command, args: [...args] };
+};
+
 const execInBox = (target: OpenShellTarget, script: string, platform: NodeJS.Platform) =>
   runInLinux(
     target,

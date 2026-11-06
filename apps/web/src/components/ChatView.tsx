@@ -44,6 +44,7 @@ import { usePendingThreadRequests } from "./chat/usePendingThreadRequests";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
+import { OPENSHELL_SANDBOX_AUTH_TYPE } from "@t3tools/contracts";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
@@ -1312,7 +1313,9 @@ export default function ChatView(props: ChatViewProps) {
   const supportsConversationRollback =
     canOperateThread &&
     conversationProviderStatus !== null &&
-    conversationProviderStatus.supportsConversationRollback !== false;
+    conversationProviderStatus.supportsConversationRollback !== false &&
+    // Rollback restores host files, and a sandboxed chat keeps its files in the box.
+    conversationProviderStatus.auth.type !== OPENSHELL_SANDBOX_AUTH_TYPE;
   const phase = derivePhase(activeRuntime);
   const serverThreadId = serverThread?.id;
   const serverThreadEnvironmentId = serverThread?.environmentId;
