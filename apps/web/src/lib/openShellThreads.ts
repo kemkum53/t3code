@@ -16,3 +16,11 @@ export const firstSandboxModelSelection = (
     ? null
     : { instanceId: provider.instanceId, model: model.slug };
 };
+
+export type SandboxState = "running" | "stopped" | "starting";
+
+/** OpenShell has more phases than a person needs, and anything unknown is still on its way. */
+export const sandboxStateOfPhase = (phase: string | null): SandboxState => {
+  if (phase === "Ready") return "running";
+  return phase !== null && /stop|error|fail/i.test(phase) ? "stopped" : "starting";
+};

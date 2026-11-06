@@ -30,6 +30,8 @@ export const OpenShellFileRequest = Schema.Struct({
 export type OpenShellFileRequest = typeof OpenShellFileRequest.Type;
 
 export const OpenShellSandboxRequests = Schema.Struct({
+  sandboxed: Schema.Boolean,
+  phase: Schema.NullOr(TrimmedNonEmptyString),
   requests: Schema.Array(OpenShellAccessRequest),
   fileRequests: Schema.Array(OpenShellFileRequest),
 });

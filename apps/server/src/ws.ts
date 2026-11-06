@@ -1607,12 +1607,17 @@ export const layerWsRpc = (
       });
       const readThreadRequests = Effect.fn("ws.readThreadRequests")(function* (threadId: ThreadId) {
         const sandbox = yield* threadSandbox(threadId);
-        if (sandbox === undefined) return { requests: [], fileRequests: [] };
+        if (sandbox === undefined) {
+          return { sandboxed: false, phase: null, requests: [], fileRequests: [] };
+        }
         const platform = yield* HostProcess.Platform;
         const fileDenials = yield* readFileDenials(threadId);
-        return yield* openShellCall("Failed to read access requests", () =>
+        const access = yield* openShellCall("Failed to read access requests", () =>
           readAccessRequests(sandbox.target, fileDenials, platform),
-        ).pipe(Effect.orElseSucceed(() => ({ requests: [], fileRequests: [] })));
+        ).pipe(Effect.orElseSucceed(() => ({ phase: null, requests: [], fileRequests: [] })));
+        // A box that does not exist yet is on its way only while a session wants it.
+        const phase = access.phase ?? (sandbox.sessionLive ? null : "Stopped");
+        return { ...access, sandboxed: true, phase };
       });
       const updateThreadGuard = Effect.fn("ws.updateThreadGuard")(function* (
         input: OpenShellUpdateGuardInput,

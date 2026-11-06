@@ -241,14 +241,17 @@ echo ${SECTION_MARKER}
 openshell policy get ${name} --full -o json </dev/null
 echo ${SECTION_MARKER}
 openshell rule get ${name} --status pending </dev/null
+echo ${SECTION_MARKER}
+openshell sandbox get ${name} -o json </dev/null
 exit 0`,
       platform,
     )
   ).toString("utf8");
-  const [logs = "", policy = "{}", pending = ""] = output.split(SECTION_MARKER);
+  const [logs = "", policy = "{}", pending = "", sandbox = "{}"] = output.split(SECTION_MARKER);
   const active = parseActivePolicy(policy);
   const files = active.filesystem_policy;
   return {
+    phase: (JSON.parse(sandbox) as { readonly phase?: string }).phase ?? null,
     requests: mergeAccessRequests(
       target.sandbox,
       parseDenials(logs),
@@ -335,7 +338,8 @@ export const readGuard = async (
     phase,
     rules: parseRules(active.network_policies ?? {}),
     denials: parseDenials(logs),
-    ...access,
+    requests: access.requests,
+    fileRequests: access.fileRequests,
     fileDenials,
     readOnlyPaths: active.filesystem_policy?.read_only ?? [],
     writablePaths: active.filesystem_policy?.read_write ?? [],

@@ -17,6 +17,7 @@ export interface ThreadSandbox {
   readonly target: OpenShellTarget;
   readonly hostCwd: string;
   readonly template: string | null;
+  readonly sessionLive: boolean;
 }
 
 const instanceProfile = (
@@ -55,6 +56,7 @@ export const resolveThreadSandbox = (
         target: targetForThread(profile, threadId),
         hostCwd: session.cwd,
         template: instance?.displayName ?? null,
+        sessionLive: session.status !== "stopped" && session.status !== "error",
       };
 };
 

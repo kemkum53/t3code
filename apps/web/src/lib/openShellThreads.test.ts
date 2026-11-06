@@ -1,7 +1,7 @@
 import { OPENSHELL_SANDBOX_AUTH_TYPE, type ServerProvider } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { firstSandboxModelSelection } from "./openShellThreads";
+import { firstSandboxModelSelection, sandboxStateOfPhase } from "./openShellThreads";
 
 const provider = (instanceId: string, authType: string, enabled = true) =>
   ({
@@ -24,5 +24,15 @@ describe("firstSandboxModelSelection", () => {
 
   it("returns nothing on a machine without a template", () => {
     expect(firstSandboxModelSelection([provider("claude", "subscription")])).toBeNull();
+  });
+});
+
+describe("sandboxStateOfPhase", () => {
+  it("maps OpenShell phases to what the chat shows", () => {
+    expect(sandboxStateOfPhase("Ready")).toBe("running");
+    expect(sandboxStateOfPhase("Stopped")).toBe("stopped");
+    expect(sandboxStateOfPhase("Stopping")).toBe("stopped");
+    expect(sandboxStateOfPhase("Provisioning")).toBe("starting");
+    expect(sandboxStateOfPhase(null)).toBe("starting");
   });
 });

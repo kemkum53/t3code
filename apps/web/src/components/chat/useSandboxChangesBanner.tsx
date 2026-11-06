@@ -11,12 +11,14 @@ import { BoxIcon } from "lucide-react";
 import { useRenderedAppearance } from "../../hooks/useTheme";
 import { resolveDiffThemeName } from "../../lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
+import { sandboxStateOfPhase, type SandboxState } from "../../lib/openShellThreads";
 import { orchestrationEnvironment } from "../../state/orchestration";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { DIFF_VIEW_UNSAFE_CSS } from "../diffs/StyledDiffCodeView";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 import { Button } from "../ui/button";
+import { Spinner } from "../ui/spinner";
 import {
   Dialog,
   DialogFooter,
@@ -30,6 +32,23 @@ import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 import { SandboxGuardButton } from "./SandboxGuardDialog";
 
 const fileCount = (count: number) => (count === 1 ? "1 file" : `${count} files`);
+
+const NO_CHANGES: OpenShellSandboxChanges = {
+  sandboxed: true,
+  sandbox: null,
+  workdir: null,
+  template: null,
+  hasProject: false,
+  blockedFileCount: 0,
+  files: [],
+  diff: "",
+};
+
+const sandboxIcon = (state: SandboxState | null) => {
+  if (state === "starting") return <Spinner size="sm" />;
+  if (state === "running") return <BoxIcon className="text-success" />;
+  return <BoxIcon className={state === "stopped" ? "text-destructive" : undefined} />;
+};
 
 const blockedFiles = (count: number) =>
   count === 1 ? "1 file access blocked" : `${count} file accesses blocked`;
@@ -149,8 +168,11 @@ export function useSandboxChangesBanner(input: {
   const [applying, setApplying] = useState(false);
   const [resolving, setResolving] = useState(false);
 
-  const changes = query.data;
-  if (threadId === null || changes === null || !changes.sandboxed) return null;
+  // The first message starts the box, so its state must show before the slower changes poll.
+  const access = requestsQuery.data;
+  const changes = query.data?.sandboxed ? query.data : access?.sandboxed ? NO_CHANGES : null;
+  if (threadId === null || changes === null) return null;
+  const boxState = access === null ? null : sandboxStateOfPhase(access.phase);
 
   const onApply = async () => {
     setApplying(true);
@@ -174,8 +196,8 @@ export function useSandboxChangesBanner(input: {
     return true;
   };
 
-  const request = requestsQuery.data?.requests[0];
-  const fileRequest = request === undefined ? requestsQuery.data?.fileRequests[0] : undefined;
+  const request = access?.requests[0];
+  const fileRequest = request === undefined ? access?.fileRequests[0] : undefined;
   const label = changes.template ?? "Sandbox";
 
   const resolveFileRequest = async (approved: boolean) => {
@@ -250,13 +272,17 @@ export function useSandboxChangesBanner(input: {
     changes.files.length === 0 ? null : `${fileCount(changes.files.length)} changed`,
     changes.blockedFileCount === 0 ? null : blockedFiles(changes.blockedFileCount),
   ].filter((part) => part !== null);
-  const changedTitle = [label, summary.join(", ")].filter(Boolean).join(": ");
+  const stateLabel =
+    boxState === "starting" ? "starting" : boxState === "stopped" ? "stopped" : null;
+  const changedTitle = [[label, stateLabel].filter(Boolean).join(" "), summary.join(", ")]
+    .filter(Boolean)
+    .join(": ");
   const programName = request?.binary.split("/").at(-1);
 
   return {
     id: "sandbox-changes",
     variant: request === undefined && fileRequest === undefined ? "info" : "warning",
-    icon: <BoxIcon />,
+    icon: sandboxIcon(boxState),
     title:
       request !== undefined
         ? `${programName} wants ${request.host}:${request.port}`
