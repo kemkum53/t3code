@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodePath from "node:path";
+
 import type { OrchestrationV2ThreadProjection, ServerSettings, ThreadId } from "@t3tools/contracts";
 
 import {
@@ -29,6 +32,12 @@ export const firstProfile = (instances: ProviderInstances) =>
   Object.values(instances)
     .map(instanceProfile)
     .find((candidate) => candidate !== undefined);
+
+/** A chat without a project runs in a folder under the scratch root, so nothing can receive a patch. */
+export const isInsideFolder = (path: string, folder: string): boolean => {
+  const relative = NodePath.relative(folder, path);
+  return !relative.startsWith("..") && !NodePath.isAbsolute(relative);
+};
 
 /** The latest provider session names the instance that holds the sandbox profile. */
 export const resolveThreadSandbox = (

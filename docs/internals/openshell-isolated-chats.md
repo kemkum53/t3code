@@ -106,7 +106,7 @@ its own installer. A user still has to install WSL with Ubuntu and paste a setup
 - [x] Approval cards in Supervised mode
 - [x] Diff review and apply in the UI
 - [x] One box per thread, deleted with the thread
-- [ ] Project-less isolated chat
+- [x] Project-less isolated chat (runs on T3's scratch project, no apply step)
 - [x] Settings page: machine checks, token, sandbox list
 - [x] Sidebar marker and template instances
 - [x] Guard dialog: network rules, denials, stop and start

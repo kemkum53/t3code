@@ -3,7 +3,12 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import { DEFAULT_SERVER_SETTINGS, type ScopedProjectRef, type ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  type ModelSelection,
+  type ScopedProjectRef,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { type AnyRouter, useRouter } from "@tanstack/react-router";
 import {
   composerDraftHasUserContent,
@@ -85,6 +90,8 @@ export function createNewThreadHandler(router: AnyRouter) {
       replace?: boolean;
       /** Composer text for the draft, set before it shows. A draft with user text keeps it. */
       prompt?: string;
+      /** Wins over any earlier pick, because the caller's action is defined by this model. */
+      modelSelection?: ModelSelection;
     },
   ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
     const projects = readProjects();
@@ -168,6 +175,7 @@ export function createNewThreadHandler(router: AnyRouter) {
       : configuredDefaultModelSelection;
     const defaultRuntimeMode = projectSettings.settings.defaultRuntimeMode;
     const resolveModelSelectionOverride = (destinationDraftId: DraftId) =>
+      options?.modelSelection ??
       resolveNewThreadModelSelectionOverride({
         projectDefaultSelection: projectDefaultModelSelection ?? null,
         carrySelection: carryModelSelection,
@@ -289,7 +297,7 @@ export function createNewThreadHandler(router: AnyRouter) {
         }
         const storedDraft = getComposerDraft(emptyStoredDraftThread.draftId);
         const storedDraftHasExplicitModelPick = hasExplicitComposerModelSelection(storedDraft);
-        if (!storedDraftHasExplicitModelPick) {
+        if (options?.modelSelection !== undefined || !storedDraftHasExplicitModelPick) {
           applyStickyState(emptyStoredDraftThread.draftId);
           const modelSelectionOverride = resolveModelSelectionOverride(
             emptyStoredDraftThread.draftId,

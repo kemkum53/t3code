@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import type { ThreadId } from "@t3tools/contracts";
 
 import {
+  isInsideFolder,
   resolveSandboxForDeletedThread,
   resolveSandboxForPath,
   resolveThreadSandbox,
@@ -77,5 +78,14 @@ describe("resolveSandboxForDeletedThread", () => {
 
   it("does nothing when no profile is configured", () => {
     assert.isUndefined(resolveSandboxForDeletedThread(threadId, instances([])));
+  });
+});
+
+describe("isInsideFolder", () => {
+  it("accepts the folder and its children only", () => {
+    assert.isTrue(isInsideFolder("/home/me/scratch/2026/chat", "/home/me/scratch"));
+    assert.isTrue(isInsideFolder("/home/me/scratch", "/home/me/scratch"));
+    assert.isFalse(isInsideFolder("/home/me/scratch-two/chat", "/home/me/scratch"));
+    assert.isFalse(isInsideFolder("/home/me/project", "/home/me/scratch"));
   });
 });

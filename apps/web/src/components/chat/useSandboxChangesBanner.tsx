@@ -31,6 +31,7 @@ function SandboxChangesReview(props: {
   readonly changes: OpenShellSandboxChanges;
   readonly applying: boolean;
   readonly canApply: boolean;
+  readonly hasProject: boolean;
   readonly onApply: () => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
@@ -61,16 +62,18 @@ function SandboxChangesReview(props: {
             <Button variant="ghost" onClick={() => setOpen(false)}>
               Close
             </Button>
-            <Button
-              disabled={!props.canApply || props.applying}
-              onClick={() => {
-                void props.onApply().then((applied) => {
-                  if (applied) setOpen(false);
-                });
-              }}
-            >
-              {props.applying ? "Applying" : "Apply to project"}
-            </Button>
+            {props.hasProject ? (
+              <Button
+                disabled={!props.canApply || props.applying}
+                onClick={() => {
+                  void props.onApply().then((applied) => {
+                    if (applied) setOpen(false);
+                  });
+                }}
+              >
+                {props.applying ? "Applying" : "Apply to project"}
+              </Button>
+            ) : null}
           </DialogFooter>
         </DialogPopup>
       </Dialog>
@@ -195,6 +198,7 @@ export function useSandboxChangesBanner(input: {
             changes={changes}
             applying={applying}
             canApply={phase !== "running"}
+            hasProject={changes.hasProject}
             onApply={onApply}
           />
         )}

@@ -7,7 +7,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ModelSelection } from "@t3tools/contracts";
 import type { AtomRegistry } from "effect/reactivity";
 import { useContext } from "react";
 
@@ -77,11 +77,17 @@ export function createScratchProjectActions(input: {
     return null;
   };
 
-  const startScratchThread = async (environmentId: EnvironmentId) => {
+  const startScratchThread = async (
+    environmentId: EnvironmentId,
+    modelSelection?: ModelSelection,
+  ) => {
     const project = await openScratchProject(environmentId);
     if (project) {
       await input
-        .handleNewThread(scopeProjectRef(project.environmentId, project.id))
+        .handleNewThread(
+          scopeProjectRef(project.environmentId, project.id),
+          modelSelection === undefined ? undefined : { modelSelection },
+        )
         .catch((error: unknown) =>
           reportScratchFailure("Could not start without a project", error),
         );

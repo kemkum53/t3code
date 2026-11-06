@@ -949,7 +949,7 @@ export function useThreadActions() {
             `Delete thread "${title}"?`,
             "This permanently clears conversation history for this thread.",
             ...(isSandboxedThread(resolved)
-              ? ["Its sandbox is deleted too, with any changes you have not applied."]
+              ? ["Its sandbox is deleted too, with every file in it."]
               : []),
           ].join("\n"),
           { variant: "destructive" },

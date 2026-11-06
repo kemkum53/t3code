@@ -29,6 +29,7 @@ export const OpenShellSandboxChanges = Schema.Struct({
   sandbox: Schema.NullOr(TrimmedNonEmptyString),
   workdir: Schema.NullOr(TrimmedNonEmptyString),
   template: Schema.NullOr(TrimmedNonEmptyString),
+  hasProject: Schema.Boolean,
   requests: Schema.Array(OpenShellAccessRequest),
   files: Schema.Array(OpenShellChangedFile),
   diff: Schema.String,

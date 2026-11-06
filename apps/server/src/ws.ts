@@ -308,6 +308,7 @@ import {
 } from "./orchestration-v2/Adapters/ClaudeOpenShellWorkspace.ts";
 import {
   firstProfile,
+  isInsideFolder,
   resolveSandboxForPath,
   resolveThreadSandbox,
 } from "./orchestration-v2/OpenShellThreadSandbox.ts";
@@ -1635,6 +1636,10 @@ export const layerWsRpc = (
           saveCredential(firstProfile(settings.providerInstances), token, platform),
         );
       });
+      const sandboxHasProject = (hostCwd: string) =>
+        managedFolders.scratchRoot.pipe(
+          Effect.map((root) => !Option.exists(root, (folder) => isInsideFolder(hostCwd, folder))),
+        );
       const runOpenShellSetup = Effect.fn("ws.runOpenShellSetup")(function* (sudoPassword: string) {
         const settings = yield* serverSettings.getSettings;
         const platform = yield* HostProcess.Platform;
@@ -1686,6 +1691,7 @@ export const layerWsRpc = (
             sandbox: null,
             workdir: null,
             template: null,
+            hasProject: false,
             requests: [],
             files: [],
             diff: "",
@@ -1708,6 +1714,7 @@ export const layerWsRpc = (
           sandbox: sandbox.target.sandbox,
           workdir: sandbox.target.workdir,
           template: sandbox.template,
+          hasProject: yield* sandboxHasProject(sandbox.hostCwd),
           requests,
           files: changes.files,
           diff: changes.patch.toString("utf8"),
@@ -1718,6 +1725,11 @@ export const layerWsRpc = (
       ) {
         const sandbox = yield* threadSandbox(threadId);
         if (sandbox === undefined) return { appliedFiles: 0 };
+        if (!(yield* sandboxHasProject(sandbox.hostCwd))) {
+          return yield* new OpenShellSandboxChangesError({
+            message: "This chat has no project to apply changes to",
+          });
+        }
         const platform = yield* HostProcess.Platform;
         const appliedFiles = yield* Effect.tryPromise({
           try: () => applySandboxChanges(sandbox.target, sandbox.hostCwd, platform),
