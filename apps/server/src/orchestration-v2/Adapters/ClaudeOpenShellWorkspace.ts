@@ -33,6 +33,12 @@ const linuxCommand = (
       }
     : { command: "sh", args: ["-c", script] };
 
+/** Git's GNU tar can come first on PATH and cannot open drive letter paths, so Windows names its own. */
+const hostTar = (platform: NodeJS.Platform) =>
+  platform === "win32"
+    ? NodePath.win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+    : "tar";
+
 const run = (
   command: string,
   args: ReadonlyArray<string>,
@@ -220,7 +226,7 @@ export const copySandboxFiles = async (
 ): Promise<void> => {
   const archive = await execInBox(target, "tar --exclude=./.git -cf - .", platform);
   await NodeFSP.mkdir(destination, { recursive: true });
-  await run("tar", ["-xf", "-", "-C", destination], archive);
+  await run(hostTar(platform), ["-xf", "-", "-C", destination], archive);
 };
 
 /** Filesystem rules load only when the supervisor starts, so a new one needs this. */
@@ -257,7 +263,7 @@ export const stageProject = async (
   const files = await listTrackedFiles(hostCwd);
   if (files.length > 0) {
     const archive = await run(
-      "tar",
+      hostTar(platform),
       ["-cf", "-", "--null", "-T", "-"],
       Buffer.from(files.join("\0") + "\0"),
       hostCwd,
