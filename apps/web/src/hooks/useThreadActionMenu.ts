@@ -1,3 +1,4 @@
+import { sandboxDeleteNotice } from "../lib/openShellThreads";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
 import { openGuestShareDialog } from "../components/chat/guestShareDialogState";
@@ -331,6 +332,7 @@ export function useThreadActionMenu(input: {
                 [
                   `Delete thread "${thread.title}"?`,
                   "This permanently clears conversation history for this thread.",
+                  ...sandboxDeleteNotice([thread]),
                 ].join("\n"),
                 { variant: "destructive" },
               ),

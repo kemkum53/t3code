@@ -1,5 +1,4 @@
-import { OPENSHELL_SANDBOX_AUTH_TYPE } from "@t3tools/contracts";
-import { environmentPresentations } from "../state/presentation";
+import { sandboxDeleteNotice } from "../lib/openShellThreads";
 import {
   parseScopedThreadKey,
   scopeProjectRef,
@@ -342,19 +341,6 @@ export function useThreadActions() {
   const router = useRouter();
   const handleNewThread = useNewThreadHandler();
 
-  const isSandboxedThread = (resolved: ReturnType<typeof resolveThreadTarget>) => {
-    // Only adds a line to the warning, so missing data must never block the delete.
-    const instanceId = resolved?.thread.modelSelection?.instanceId;
-    if (resolved === null || instanceId === undefined) return false;
-    const providers =
-      appAtomRegistry
-        .get(environmentPresentations.providersByEnvironmentAtom)
-        .get(resolved.threadRef.environmentId) ?? [];
-    return providers.some(
-      (provider) =>
-        provider.instanceId === instanceId && provider.auth.type === OPENSHELL_SANDBOX_AUTH_TYPE,
-    );
-  };
   const resolveThreadTarget = (target: ScopedThreadRef) => {
     const thread = readThreadShell(target);
     if (!thread) {
@@ -949,9 +935,14 @@ export function useThreadActions() {
           [
             `Delete thread "${title}"?`,
             "This permanently clears conversation history for this thread.",
-            ...(isSandboxedThread(resolved)
-              ? ["Its sandbox is deleted too, with every file in it."]
-              : []),
+            ...(resolved === null
+              ? []
+              : sandboxDeleteNotice([
+                  {
+                    environmentId: resolved.threadRef.environmentId,
+                    modelSelection: resolved.thread.modelSelection,
+                  },
+                ])),
           ].join("\n"),
           { variant: "destructive" },
         ),

@@ -151,6 +151,7 @@ import {
   useQuietThreadShells,
 } from "../state/entities";
 import { environmentPresentations } from "../state/presentation";
+import { sandboxDeleteNotice } from "../lib/openShellThreads";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { environmentProjects } from "../state/projects";
 import { threadEnvironment } from "../state/threads";
@@ -2465,6 +2466,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             [
               `Delete ${count} thread${count === 1 ? "" : "s"}?`,
               "This permanently clears conversation history for these threads.",
+              ...sandboxDeleteNotice(actionTargets),
             ].join("\n"),
             { variant: "destructive" },
           ),
@@ -2831,6 +2833,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   [
                     `Delete thread "${thread.title}"?`,
                     "This permanently clears conversation history for this thread.",
+                    ...sandboxDeleteNotice([thread]),
                   ].join("\n"),
                   { variant: "destructive" },
                 ),

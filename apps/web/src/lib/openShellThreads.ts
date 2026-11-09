@@ -1,8 +1,12 @@
 import {
   OPENSHELL_SANDBOX_AUTH_TYPE,
   type ModelSelection,
+  type EnvironmentId,
   type ServerProvider,
 } from "@t3tools/contracts";
+
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { environmentPresentations } from "../state/presentation";
 
 export interface SandboxTemplateChoice {
   readonly name: string;
@@ -24,6 +28,37 @@ export const sandboxTemplateChoices = (
           },
         ];
   });
+
+interface DeletedThread {
+  readonly environmentId: EnvironmentId;
+  readonly modelSelection?: { readonly instanceId: string } | undefined;
+}
+
+const isSandboxedThread = (thread: DeletedThread): boolean => {
+  const instanceId = thread.modelSelection?.instanceId;
+  if (instanceId === undefined) return false;
+  const providers =
+    appAtomRegistry
+      .get(environmentPresentations.providersByEnvironmentAtom)
+      .get(thread.environmentId) ?? [];
+  return providers.some(
+    (provider) =>
+      provider.instanceId === instanceId && provider.auth.type === OPENSHELL_SANDBOX_AUTH_TYPE,
+  );
+};
+
+/** Extra delete prompt line. It only informs, so missing data never blocks the delete. */
+export const sandboxDeleteNotice = (
+  threads: ReadonlyArray<DeletedThread>,
+): ReadonlyArray<string> => {
+  const sandboxed = threads.filter(isSandboxedThread).length;
+  if (sandboxed === 0) return [];
+  return threads.length === 1
+    ? ["Its sandbox is deleted too, with every file in it."]
+    : [
+        `${sandboxed} sandbox${sandboxed === 1 ? " is" : "es are"} deleted too, with every file in them.`,
+      ];
+};
 
 export type SandboxState = "running" | "stopped" | "starting";
 
