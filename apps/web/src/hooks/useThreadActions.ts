@@ -343,12 +343,13 @@ export function useThreadActions() {
   const handleNewThread = useNewThreadHandler();
 
   const isSandboxedThread = (resolved: ReturnType<typeof resolveThreadTarget>) => {
-    if (resolved === null) return false;
+    // Only adds a line to the warning, so missing data must never block the delete.
+    const instanceId = resolved?.thread.modelSelection?.instanceId;
+    if (resolved === null || instanceId === undefined) return false;
     const providers =
       appAtomRegistry
         .get(environmentPresentations.providersByEnvironmentAtom)
         .get(resolved.threadRef.environmentId) ?? [];
-    const instanceId = resolved.thread.modelSelection.instanceId;
     return providers.some(
       (provider) =>
         provider.instanceId === instanceId && provider.auth.type === OPENSHELL_SANDBOX_AUTH_TYPE,
