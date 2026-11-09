@@ -2368,9 +2368,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       getModelDisabledReason={getModelDisabledReason}
     />
   );
-  // Text the user is writing wins, and a running turn retries on its own.
+  // A running turn still gets the message: the normal send queues or steers it.
+  // Text the user is writing wins, and Allow can finish after the user opened another chat.
+  const allowedFromDraftKey = composerDraftTargetKey;
   const continueAfterAccess = (target: string) => {
-    if (!continueAfterAllow || phase === "running" || promptRef.current.trim() !== "") return;
+    if (!continueAfterAllow || promptRef.current.trim() !== "") return;
+    if (composerDraftTargetKeyRef.current !== allowedFromDraftKey) return;
     const message = `Access to ${target} is approved. Continue where you stopped.`;
     promptRef.current = message;
     setPrompt(message);
