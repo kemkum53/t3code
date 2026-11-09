@@ -132,6 +132,36 @@ its own installer. A user still has to install WSL with Ubuntu and paste a setup
 - Which T3 paths assume host files: `claudeHistoryWorker`, resume, and worktrees?
 - SDK arguments and `cwd` carry Windows paths. They need mapping to box paths.
 
+## Template hosts, tested on 2026-11-07
+
+| Check                                      | Result            |
+| ------------------------------------------ | ----------------- |
+| `/usr/bin/curl` to a listed host           | 200               |
+| `/usr/bin/curl` to an unlisted host        | Denied and logged |
+| `python3` to a listed host                 | 200               |
+| A binary copied under `/sandbox` to a host | 200               |
+| Box ready from a 917 MB template image     | 41 s              |
+
+## Full test suite against upstream, 2026-11-09
+
+Each package ran on this branch and on its upstream base (`337c5858c3`), and failures were compared
+by test name. Failures present on both sides are Windows specific (symlink permission, path
+separators, Linux only tests).
+
+| Package    | Branch                 | Upstream               | Branch only               |
+| ---------- | ---------------------- | ---------------------- | ------------------------- |
+| server     | 6626 tests, 175 failed | 6568 tests, 176 failed | 1, passed 3 of 3 alone    |
+| web        | 4726 tests, 1 failed   | 4718 tests, 0 failed   | 1, a real bug, fixed      |
+| shared     | 1399 tests, 12 failed  | 1399 tests, 13 failed  | 0                         |
+| task-cache | 41 tests, 3 failed     | 41 tests, 2 failed     | 1, timeout, passed 3 of 3 |
+
+## Upstream
+
+Upstream takes features only after an Ideas discussion with explicit maintainer approval of scope.
+Two related PRs were open on 2026-11-09: #15350 (Docker sandbox per thread, by a maintainer) and
+#32158 (OpenShell as worker environments, with maintainer fixups). This branch stays a fork; a
+discussion can offer per-chat isolation as a second backend.
+
 ## Milestones
 
 - [x] Pilot on PC and Raspberry Pi
@@ -150,4 +180,4 @@ its own installer. A user still has to install WSL with Ubuntu and paste a setup
 - [x] Install steps in the settings page
 - [x] Delete warning for unapplied changes
 - [x] Stop idle boxes automatically
-- [ ] Raspberry Pi support
+- [ ] Raspberry Pi support (blocked: 1.9 GB free on the Pi, setup needs 3 GB)
